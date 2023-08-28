@@ -1,3 +1,4 @@
+use openfaas_operato_rs::types::FunctionDeployment;
 use tracing_subscriber::EnvFilter;
 
 pub fn init_tracing() {
@@ -20,5 +21,32 @@ pub fn init_tracing() {
 #[tokio::main]
 async fn main() {
     init_tracing();
-    println!("Hello, world!");
+
+    let dep = FunctionDeployment {
+        service: "nodeinfo".to_string(),
+        image: "ghcr.io/openfaas/nodeinfo:latest".to_string(),
+        namespace: Some("openfaas-fn".to_string()),
+        env_process: None,
+        env_vars: None,
+        constraints: None,
+        secrets: None,
+        labels: None,
+        annotations: None,
+        limits: None,
+        requests: None,
+        read_only_root_filesystem: None,
+    };
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post("http://localhost:8080/system/functions")
+        .basic_auth("user", Some("pass"))
+        .header("Content-Type", "application/json")
+        // .header("User-Agent", "faas-cli/0.16.13")
+        .body(serde_json::to_string(&dep).unwrap())
+        .send()
+        .await
+        .unwrap();
+
+    println!("{:?}", resp);
 }
