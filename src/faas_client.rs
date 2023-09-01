@@ -2,7 +2,7 @@ use crate::{
     request::functions::{DeleteFunctionRequest, FunctionDeployment, FUNCTIONS_ENDPOINT},
     util::remove_trailling_slash,
 };
-use reqwest::{Error as ReqwestError, Method, Request, StatusCode};
+use reqwest::{Error as ReqwestError, Method, Request, Response, StatusCode};
 use serde::Serialize;
 use serde_json::Error as SerdeJsonError;
 use thiserror::Error as ThisError;
@@ -40,7 +40,11 @@ pub enum RequestBuildError {
 #[derive(ThisError, Debug)]
 pub enum RequestExecutionError {
     #[error("HTTP error: {0}")]
-    HttpError(#[source] ReqwestError),
+    HttpError(
+        #[source]
+        #[from]
+        ReqwestError,
+    ),
     #[error("Faas: bad request")]
     BadRequest,
     #[error("Faas: not found")]
@@ -126,14 +130,9 @@ impl FaasCleint {
         Ok(req)
     }
 
-    async fn execute_request(&self, req: Request) -> FaasResult {
-        let res = self
-            .client
-            .execute(req)
-            .await
-            .map_err(RequestExecutionError::HttpError)?;
-
-        Self::status_code_into_faas_result(res.status())
+    async fn execute_request(&self, req: Request) -> Result<Response, RequestExecutionError> {
+        let res = self.client.execute(req).await?;
+        Ok(res)
     }
 
     async fn build_and_execute_request<T: Serialize>(
@@ -142,7 +141,9 @@ impl FaasCleint {
         body: &T,
     ) -> FaasResult {
         let req = self.build_request(method, body)?;
-        self.execute_request(req).await
+        let res = self.execute_request(req).await?;
+
+        Self::status_code_into_faas_result(res.status())
     }
 
     pub async fn deploy_function(&self, function_deployment: FunctionDeployment) -> FaasResult {
