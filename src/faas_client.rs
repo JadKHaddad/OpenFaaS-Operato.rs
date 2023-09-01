@@ -2,7 +2,8 @@ use crate::{
     request::functions::{DeleteFunctionRequest, FunctionDeployment, FUNCTIONS_ENDPOINT},
     util::remove_trailling_slash,
 };
-use reqwest::{Error as ReqwestError, StatusCode};
+use reqwest::{Error as ReqwestError, Method, Request, StatusCode};
+use serde::Serialize;
 use serde_json::Error as SerdeJsonError;
 use thiserror::Error as ThisError;
 
@@ -17,18 +18,27 @@ impl BasicAuth {
     }
 }
 
+pub type RequestBuildResult = Result<Request, RequestBuildError>;
 pub type FaasResult = Result<(), FaasError>;
 
 #[derive(ThisError, Debug)]
-pub enum FaasError {
+pub enum RequestBuildError {
     #[error("Serializing error: {0}")]
     SerializingError(
         #[source]
         #[from]
         SerdeJsonError,
     ),
-    #[error("HTTP build error: {0}")]
-    HttpBuilderError(#[source] ReqwestError),
+    #[error("Request build error: {0}")]
+    HttpBuilderError(
+        #[source]
+        #[from]
+        ReqwestError,
+    ),
+}
+
+#[derive(ThisError, Debug)]
+pub enum RequestExecutionError {
     #[error("HTTP error: {0}")]
     HttpError(#[source] ReqwestError),
     #[error("Faas: bad request")]
@@ -37,17 +47,33 @@ pub enum FaasError {
     NotFound,
     #[error("Faas: internal server error")]
     InternalServerError,
-    #[error("Faas: unknown status code: {0}")]
-    UnknownStatusCode(u16),
+    #[error("Faas: unexpected status code: {0}")]
+    UnexpectedStatusCode(u16),
 }
 
-impl From<StatusCode> for FaasError {
+#[derive(ThisError, Debug)]
+pub enum FaasError {
+    #[error("Request build error: {0}")]
+    RequestBuildError(
+        #[source]
+        #[from]
+        RequestBuildError,
+    ),
+    #[error("Request execution error: {0}")]
+    ExecutionError(
+        #[source]
+        #[from]
+        RequestExecutionError,
+    ),
+}
+
+impl From<StatusCode> for RequestExecutionError {
     fn from(status_code: StatusCode) -> Self {
         match status_code {
-            StatusCode::BAD_REQUEST => FaasError::BadRequest,
-            StatusCode::NOT_FOUND => FaasError::NotFound,
-            StatusCode::INTERNAL_SERVER_ERROR => FaasError::InternalServerError,
-            _ => FaasError::UnknownStatusCode(status_code.as_u16()),
+            StatusCode::BAD_REQUEST => RequestExecutionError::BadRequest,
+            StatusCode::NOT_FOUND => RequestExecutionError::NotFound,
+            StatusCode::INTERNAL_SERVER_ERROR => RequestExecutionError::InternalServerError,
+            _ => RequestExecutionError::UnexpectedStatusCode(status_code.as_u16()),
         }
     }
 }
@@ -78,77 +104,62 @@ impl FaasCleint {
         match status_code {
             StatusCode::OK => Ok(()),
             StatusCode::ACCEPTED => Ok(()),
-            status_code => Err(status_code.into()),
+            status_code => Err(FaasError::ExecutionError(status_code.into())),
         }
     }
 
-    pub async fn deploy_function(&self, function_deployment: FunctionDeployment) -> FaasResult {
+    pub fn build_request<T: Serialize>(&self, method: Method, body: &T) -> RequestBuildResult {
         let url = self.get_functions_url();
+        let mut builder = self.client.request(method, url);
+        let body = serde_json::to_string(body)?;
 
-        let mut builder = self
-            .client
-            .post(url)
-            .header("Content-Type", "application/json");
+        builder = builder
+            .header("Content-Type", "application/json")
+            .body(body);
 
         if let Some(basic_auth) = &self.basic_auth {
             builder = builder.basic_auth(&basic_auth.username, Some(&basic_auth.password));
         }
 
-        let body = serde_json::to_string(&function_deployment)?;
+        let req = builder.build()?;
 
-        let req = builder
-            .body(body)
-            .build()
-            .map_err(FaasError::HttpBuilderError)?;
+        Ok(req)
+    }
 
-        let resp = self
+    async fn execute_request(&self, req: Request) -> FaasResult {
+        let res = self
             .client
             .execute(req)
             .await
-            .map_err(FaasError::HttpError)?;
+            .map_err(RequestExecutionError::HttpError)?;
 
-        Self::status_code_into_faas_result(resp.status())
+        Self::status_code_into_faas_result(res.status())
     }
 
-    pub async fn update_function(&self, function_deployment: FunctionDeployment) {
-        let url = self.get_functions_url();
-
-        let mut builder = self
-            .client
-            .put(url)
-            .header("Content-Type", "application/json");
-
-        if let Some(basic_auth) = &self.basic_auth {
-            builder = builder.basic_auth(&basic_auth.username, Some(&basic_auth.password));
-        }
-
-        let body = serde_json::to_string(&function_deployment).unwrap();
-
-        let req = builder.body(body).build().unwrap();
-
-        let resp = self.client.execute(req).await.unwrap();
-
-        println!("{:?}", resp);
+    async fn build_and_execute_request<T: Serialize>(
+        &self,
+        method: Method,
+        body: &T,
+    ) -> FaasResult {
+        let req = self.build_request(method, body)?;
+        self.execute_request(req).await
     }
 
-    pub async fn delete_function(&self, delete_function_request: DeleteFunctionRequest) {
-        let url = self.get_functions_url();
+    pub async fn deploy_function(&self, function_deployment: FunctionDeployment) -> FaasResult {
+        self.build_and_execute_request(Method::POST, &function_deployment)
+            .await
+    }
 
-        let mut builder = self
-            .client
-            .delete(url)
-            .header("Content-Type", "application/json");
+    pub async fn update_function(&self, function_deployment: FunctionDeployment) -> FaasResult {
+        self.build_and_execute_request(Method::PUT, &function_deployment)
+            .await
+    }
 
-        if let Some(basic_auth) = &self.basic_auth {
-            builder = builder.basic_auth(&basic_auth.username, Some(&basic_auth.password));
-        }
-
-        let body = serde_json::to_string(&delete_function_request).unwrap();
-
-        let req = builder.body(body).build().unwrap();
-
-        let resp = self.client.execute(req).await.unwrap();
-
-        println!("{:?}", resp);
+    pub async fn delete_function(
+        &self,
+        delete_function_request: DeleteFunctionRequest,
+    ) -> FaasResult {
+        self.build_and_execute_request(Method::DELETE, &delete_function_request)
+            .await
     }
 }
