@@ -59,7 +59,7 @@ async fn main() {
 
     let faas_gateway_url = std::env::var("FAAS_GATEWAY_URL").unwrap_or_else(|_| {
         tracing::warn!(
-            faas_gateway_url = FAAS_GATEWAY_DEFAULT_URL,
+            faas_gateway_url = %FAAS_GATEWAY_DEFAULT_URL,
             "FAAS_GATEWAY_URL not set, using default"
         );
         FAAS_GATEWAY_DEFAULT_URL.to_string()
@@ -80,7 +80,7 @@ async fn main() {
                 std::process::exit(1);
             });
 
-            tracing::info!(faas_gateway_host = host, "Performing dns lookup");
+            tracing::info!(faas_gateway_host = %host, "Performing dns lookup");
             match tokio::net::lookup_host(host).await {
                 Ok(mut addresses) => {
                     if addresses.next().is_none() {
@@ -111,7 +111,7 @@ async fn main() {
     };
     let functions_namespace = std::env::var("FAAS_FUNCTIONS_NAMESPACE").unwrap_or_else(|_| {
         tracing::warn!(
-            faas_functions_namespace = FAAS_FUNCTIONS_DEFAULT_NAMESPACE,
+            faas_functions_namespace = %FAAS_FUNCTIONS_DEFAULT_NAMESPACE,
             "FAAS_FUNCTIONS_NAMESPACE not set, using default"
         );
         FAAS_FUNCTIONS_DEFAULT_NAMESPACE.to_string()
@@ -155,13 +155,13 @@ async fn reconcile(
     let kubernetes_client = context.kubernetes_client.clone();
     let namespace: String = match openfaas_function.namespace() {
         None => {
-            tracing::error!(name, "Resource has no namespace. Aborting");
+            tracing::error!(%name, "Resource has no namespace. Aborting");
             return Err(ControllerError::InputError);
         }
         Some(namespace) => namespace,
     };
 
-    tracing::info!(name, namespace, "Reconciling resource");
+    tracing::info!(%name, %namespace, "Reconciling resource");
 
     // if the resource is being deleted, remove finalizers and clean up
     if openfaas_function
@@ -170,9 +170,9 @@ async fn reconcile(
         .deletion_timestamp
         .is_some()
     {
-        tracing::info!(name, namespace, "Resource is being deleted");
+        tracing::info!(%name, %namespace, "Resource is being deleted");
         remove_finalizers(kubernetes_client.clone(), &name, &namespace).await?;
-        tracing::info!(name, namespace, "Finalizers removed");
+        tracing::info!(%name, %namespace, "Finalizers removed");
         return Ok(Action::await_change());
     }
 
@@ -184,13 +184,13 @@ async fn reconcile(
         .as_ref()
         .map_or(true, |finalizers| finalizers.is_empty())
     {
-        tracing::info!(name, namespace, "No finalizer found");
+        tracing::info!(%name, %namespace, "No finalizer found");
         add_finalizer(kubernetes_client.clone(), &name, &namespace).await?;
-        tracing::info!(name, namespace, "Finalizer added ");
+        tracing::info!(%name, %namespace, "Finalizer added ");
         return Ok(Action::await_change());
     }
 
-    tracing::info!(name, namespace, "No action required");
+    tracing::info!(%name, %namespace, "No action required");
     Ok(Action::await_change())
 }
 
