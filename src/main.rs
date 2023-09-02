@@ -1,13 +1,15 @@
 use futures::stream::StreamExt;
 use kube::{
+    api::{Patch, PatchParams},
     runtime::Controller,
     runtime::{controller::Action, watcher::Config},
-    Api, Client as KubeClient, Error as KubeError,
+    Api, Client as KubeClient, CustomResourceExt, Error as KubeError, Resource, ResourceExt,
 };
 use openfaas_operato_rs::{
-    crds::OpenFaaSFunction,
+    crds::{OpenFaaSFunction, FINALIZER},
     faas_client::{BasicAuth, FaasCleint},
 };
+use serde_json::{json, Value};
 use std::sync::Arc;
 use thiserror::Error as ThisError;
 use tokio::time::Duration;
@@ -148,8 +150,48 @@ async fn reconcile(
     openfaas_function: Arc<OpenFaaSFunction>,
     context: Arc<ContextData>,
 ) -> Result<Action, ControllerError> {
-    println!("{:#?}", openfaas_function);
-    Ok(Action::requeue(Duration::from_secs(10)))
+    let name = openfaas_function.name_any();
+
+    let kubernetes_client = context.kubernetes_client.clone();
+    let namespace: String = match openfaas_function.namespace() {
+        None => {
+            tracing::error!(name, "Resource has no namespace. Aborting");
+            return Err(ControllerError::InputError);
+        }
+        Some(namespace) => namespace,
+    };
+
+    tracing::info!(name, namespace, "Reconciling resource");
+
+    // if the resource is being deleted, remove finalizers and clean up
+    if openfaas_function
+        .as_ref()
+        .meta()
+        .deletion_timestamp
+        .is_some()
+    {
+        tracing::info!(name, namespace, "Resource is being deleted");
+        remove_finalizers(kubernetes_client.clone(), &name, &namespace).await?;
+        tracing::info!(name, namespace, "Finalizers removed");
+        return Ok(Action::await_change());
+    }
+
+    // if there is no finalizer, add one
+    if openfaas_function
+        .as_ref()
+        .meta()
+        .finalizers
+        .as_ref()
+        .map_or(true, |finalizers| finalizers.is_empty())
+    {
+        tracing::info!(name, namespace, "No finalizer found");
+        add_finalizer(kubernetes_client.clone(), &name, &namespace).await?;
+        tracing::info!(name, namespace, "Finalizer added ");
+        return Ok(Action::await_change());
+    }
+
+    tracing::info!(name, namespace, "No action required");
+    Ok(Action::await_change())
 }
 
 fn on_error(
@@ -158,4 +200,51 @@ fn on_error(
     _context: Arc<ContextData>,
 ) -> Action {
     Action::requeue(Duration::from_secs(10))
+}
+
+async fn add_finalizer(
+    client: KubeClient,
+    name: &str,
+    namespace: &str,
+) -> Result<OpenFaaSFunction, KubeError> {
+    let api: Api<OpenFaaSFunction> = Api::namespaced(client, namespace);
+    // check for resource existence
+    let resource = api.get(name).await?;
+    // check if finalizer already exists
+    if resource
+        .metadata
+        .finalizers
+        .as_ref()
+        .map(|finalizers| finalizers.contains(&FINALIZER.to_string()))
+        .unwrap_or(false)
+    {
+        return Ok(resource);
+    }
+
+    let finalizers: Value = json!({
+        "metadata": {
+            "finalizers": [FINALIZER]
+        }
+    });
+
+    let patch: Patch<&Value> = Patch::Merge(&finalizers);
+    api.patch(name, &PatchParams::default(), &patch).await
+}
+
+pub async fn remove_finalizers(
+    client: KubeClient,
+    name: &str,
+    namespace: &str,
+) -> Result<OpenFaaSFunction, KubeError> {
+    let api: Api<OpenFaaSFunction> = Api::namespaced(client, namespace);
+    // check for resource existence
+    let _resource = api.get(name).await?;
+    let finalizers: Value = json!({
+        "metadata": {
+            "finalizers": null
+        }
+    });
+
+    let patch: Patch<&Value> = Patch::Merge(&finalizers);
+    api.patch(name, &PatchParams::default(), &patch).await
 }
