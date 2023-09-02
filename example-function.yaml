@@ -1,0 +1,9 @@
+apiVersion: operato.rs/v1
+kind: OpenFaaSFunction
+metadata:
+  name: nodeinfo
+  namespace: openfaas
+spec:
+  service: nodeinfo
+  image: ghcr.io/openfaas/nodeinfo:latest
+  namespace: openfaas-fn

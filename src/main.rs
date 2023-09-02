@@ -10,9 +10,11 @@ use openfaas_operato_rs::{
 };
 use std::sync::Arc;
 use thiserror::Error as ThisError;
+use tokio::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 const FAAS_GATEWAY_DEFAULT_URL: &str = "http://gateway.openfaas.svc.cluster.local:8080";
+const FAAS_FUNCTIONS_DEFAULT_NAMESPACE: &str = "openfaas-fn";
 
 pub fn init_tracing() {
     if std::env::var_os("RUST_LOG").is_none() {
@@ -105,6 +107,13 @@ async fn main() {
             None
         }
     };
+    let functions_namespace = std::env::var("FAAS_FUNCTIONS_NAMESPACE").unwrap_or_else(|_| {
+        tracing::warn!(
+            faas_functions_namespace = FAAS_FUNCTIONS_DEFAULT_NAMESPACE,
+            "FAAS_FUNCTIONS_NAMESPACE not set, using default"
+        );
+        FAAS_FUNCTIONS_DEFAULT_NAMESPACE.to_string()
+    });
 
     let faas_client = FaasCleint::new(faas_gateway_url, basic_auth);
     let kubernetes_client = match KubeClient::try_default().await {
@@ -133,34 +142,14 @@ async fn main() {
             }
         })
         .await;
-
-    // let function_deployment = FunctionDeployment {
-    //     open_faas_function_spec: OpenFaasFunctionSpec {
-    //         service: "nodeinfo".to_string(),
-    //         image: "ghcr.io/openfaas/nodeinfo:latest".to_string(),
-    //         namespace: Some("openfaas-fn".to_string()),
-    //         env_process: None,
-    //         env_vars: None,
-    //         constraints: None,
-    //         secrets: None,
-    //         labels: None,
-    //         annotations: None,
-    //         limits: None,
-    //         requests: None,
-    //         read_only_root_filesystem: None,
-    //     },
-    // };
-
-    // println!("{:?}", serde_json::to_string(&function_deployment).unwrap());
-
-    // faas_client.deploy_function(function_deployment).await;
 }
 
 async fn reconcile(
     openfaas_function: Arc<OpenFaaSFunction>,
     context: Arc<ContextData>,
 ) -> Result<Action, ControllerError> {
-    todo!()
+    println!("{:#?}", openfaas_function);
+    Ok(Action::requeue(Duration::from_secs(10)))
 }
 
 fn on_error(
@@ -168,5 +157,5 @@ fn on_error(
     error: &ControllerError,
     _context: Arc<ContextData>,
 ) -> Action {
-    todo!()
+    Action::requeue(Duration::from_secs(10))
 }
