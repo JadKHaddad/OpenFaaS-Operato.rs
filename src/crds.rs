@@ -25,11 +25,11 @@ pub struct OpenFaasFunctionSpec {
     /// namespace for the function, if supported by the faas-provider
     pub namespace: Option<String>,
 
-    /// env_process overrides the fprocess environment variable and can be used
+    /// envProcess overrides the fprocess environment variable and can be used
     /// with the watchdog
     pub env_process: Option<String>,
 
-    /// env_vars can be provided to set environment variables for the function runtime.
+    /// envVars can be provided to set environment variables for the function runtime.
     pub env_vars: Option<HashMap<String, String>>,
 
     /// constraints are specific to the faas-provider.
@@ -52,7 +52,7 @@ pub struct OpenFaasFunctionSpec {
     /// requests of resources requested by function
     pub requests: Option<FunctionResources>,
 
-    /// read_only_root_filesystem removes write-access from the root filesystem
+    /// readOnlyRootFilesystem removes write-access from the root filesystem
     /// mount-point.
     pub read_only_root_filesystem: Option<bool>,
 }

@@ -33,13 +33,13 @@ spec:
                 nullable: true
                 type: array
               envProcess:
-                description: env_process overrides the fprocess environment variable and can be used with the watchdog
+                description: envProcess overrides the fprocess environment variable and can be used with the watchdog
                 nullable: true
                 type: string
               envVars:
                 additionalProperties:
                   type: string
-                description: env_vars can be provided to set environment variables for the function runtime.
+                description: envVars can be provided to set environment variables for the function runtime.
                 nullable: true
                 type: object
               image:
@@ -69,7 +69,7 @@ spec:
                 nullable: true
                 type: string
               readOnlyRootFilesystem:
-                description: read_only_root_filesystem removes write-access from the root filesystem mount-point.
+                description: readOnlyRootFilesystem removes write-access from the root filesystem mount-point.
                 nullable: true
                 type: boolean
               requests:

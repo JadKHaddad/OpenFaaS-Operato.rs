@@ -53,13 +53,49 @@ async fn main() {
     init_tracing();
     OpenFaaSFunction::write_crds_to_file("crds.yaml");
 
-    let gateway_url = std::env::var("FAAS_GATEWAY_URL").unwrap_or_else(|_| {
+    let faas_gateway_url = std::env::var("FAAS_GATEWAY_URL").unwrap_or_else(|_| {
         tracing::warn!(
             faas_gateway_url = FAAS_GATEWAY_DEFAULT_URL,
             "FAAS_GATEWAY_URL not set, using default"
         );
         FAAS_GATEWAY_DEFAULT_URL.to_string()
     });
+
+    let faas_gateway_url: String = match url::Url::parse(&faas_gateway_url) {
+        Ok(mut parsed_url) => {
+            if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
+                tracing::warn!("FAAS_GATEWAY_URL must be a http or https url. Assuming http");
+                parsed_url.set_scheme("http").unwrap_or_else(|_| {
+                    tracing::error!("Failed to set scheme to http. Exiting");
+                    std::process::exit(1);
+                });
+            }
+
+            let host = parsed_url.host_str().unwrap_or_else(|| {
+                tracing::error!("Failed to get host from FAAS_GATEWAY_URL. Exiting");
+                std::process::exit(1);
+            });
+
+            tracing::info!(faas_gateway_host = host, "Performing dns lookup");
+            match tokio::net::lookup_host(host).await {
+                Ok(mut addresses) => {
+                    if addresses.next().is_none() {
+                        tracing::warn!("No ip addresses found for host");
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Dns lookup failed");
+                }
+            };
+
+            parsed_url.into()
+        }
+        Err(error) => {
+            tracing::error!(%error, "Failed to parse FAAS_GATEWAY_URL. Exiting");
+            std::process::exit(1);
+        }
+    };
+
     let gateway_username = std::env::var("FAAS_GATEWAY_USERNAME").ok();
     let gateway_password = std::env::var("FAAS_GATEWAY_PASSWORD").ok();
     let basic_auth = match (gateway_username, gateway_password) {
@@ -70,7 +106,7 @@ async fn main() {
         }
     };
 
-    let faas_client = FaasCleint::new(gateway_url, basic_auth);
+    let faas_client = FaasCleint::new(faas_gateway_url, basic_auth);
     let kubernetes_client = match KubeClient::try_default().await {
         Ok(client) => client,
         Err(error) => {

@@ -241,6 +241,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dns-lookup"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f332aa79f9e9de741ac013237294ef42ce2e9c6394dc7d766725812f1238812"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "socket2 0.5.3",
+ "windows-sys",
+]
+
+[[package]]
 name = "dyn-clone"
 version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -974,6 +986,7 @@ checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 name = "openfaas_operato_rs"
 version = "0.1.0"
 dependencies = [
+ "dns-lookup",
  "futures",
  "k8s-openapi",
  "kube",
@@ -986,6 +999,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]
