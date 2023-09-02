@@ -1,4 +1,5 @@
 use openfaas_operato_rs::{
+    crds::{OpenFaaSFunction, OpenFaasFunctionSpec},
     faas_client::{BasicAuth, FaasCleint},
     request::functions::FunctionDeployment,
 };
@@ -24,24 +25,29 @@ pub fn init_tracing() {
 #[tokio::main]
 async fn main() {
     init_tracing();
+    OpenFaaSFunction::write_crds_to_file("crds.yaml");
 
     let basic_auth = BasicAuth::new("user".to_string(), "pass".to_string());
     let faas_client = FaasCleint::new("http://localhost:8081".to_string(), Some(basic_auth));
 
     let function_deployment = FunctionDeployment {
-        service: "nodeinfo".to_string(),
-        image: "ghcr.io/openfaas/nodeinfo:latest".to_string(),
-        namespace: Some("openfaas-fn".to_string()),
-        env_process: None,
-        env_vars: None,
-        constraints: None,
-        secrets: None,
-        labels: None,
-        annotations: None,
-        limits: None,
-        requests: None,
-        read_only_root_filesystem: None,
+        open_faas_function_spec: OpenFaasFunctionSpec {
+            service: "nodeinfo".to_string(),
+            image: "ghcr.io/openfaas/nodeinfo:latest".to_string(),
+            namespace: Some("openfaas-fn".to_string()),
+            env_process: None,
+            env_vars: None,
+            constraints: None,
+            secrets: None,
+            labels: None,
+            annotations: None,
+            limits: None,
+            requests: None,
+            read_only_root_filesystem: None,
+        },
     };
 
-    faas_client.deploy_function(function_deployment).await;
+    // println!("{:?}", serde_json::to_string(&function_deployment).unwrap());
+
+    // faas_client.deploy_function(function_deployment).await;
 }

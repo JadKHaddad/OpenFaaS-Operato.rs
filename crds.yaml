@@ -1,0 +1,114 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: openfaasfunctions.operato.rs
+spec:
+  group: operato.rs
+  names:
+    categories: []
+    kind: OpenFaaSFunction
+    plural: openfaasfunctions
+    shortNames: []
+    singular: openfaasfunction
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns: []
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: Auto-generated derived type for OpenFaasFunctionSpec via `CustomResource`
+        properties:
+          spec:
+            properties:
+              annotations:
+                additionalProperties:
+                  type: string
+                description: annotations are metadata for functions which may be used by the faas-provider or the gateway
+                nullable: true
+                type: object
+              constraints:
+                description: constraints are specific to the faas-provider.
+                items:
+                  type: string
+                nullable: true
+                type: array
+              envProcess:
+                description: env_process overrides the fprocess environment variable and can be used with the watchdog
+                nullable: true
+                type: string
+              envVars:
+                additionalProperties:
+                  type: string
+                description: env_vars can be provided to set environment variables for the function runtime.
+                nullable: true
+                type: object
+              image:
+                description: image is a fully-qualified container image
+                type: string
+              labels:
+                additionalProperties:
+                  type: string
+                description: labels are metadata for functions which may be used by the faas-provider or the gateway
+                nullable: true
+                type: object
+              limits:
+                description: limits for function
+                nullable: true
+                properties:
+                  cpu:
+                    description: cpu is the cpu limit for the function
+                    nullable: true
+                    type: string
+                  memory:
+                    description: memory is the memory limit for the function
+                    nullable: true
+                    type: string
+                type: object
+              namespace:
+                description: namespace for the function, if supported by the faas-provider
+                nullable: true
+                type: string
+              readOnlyRootFilesystem:
+                description: read_only_root_filesystem removes write-access from the root filesystem mount-point.
+                nullable: true
+                type: boolean
+              requests:
+                description: requests of resources requested by function
+                nullable: true
+                properties:
+                  cpu:
+                    description: cpu is the cpu limit for the function
+                    nullable: true
+                    type: string
+                  memory:
+                    description: memory is the memory limit for the function
+                    nullable: true
+                    type: string
+                type: object
+              secrets:
+                description: secrets list of secrets to be made available to function
+                items:
+                  type: string
+                nullable: true
+                type: array
+              service:
+                description: service is the name of the function deployment
+                type: string
+            required:
+            - image
+            - service
+            type: object
+          status:
+            enum:
+            - Ok
+            - Error
+            nullable: true
+            type: string
+        required:
+        - spec
+        title: OpenFaaSFunction
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

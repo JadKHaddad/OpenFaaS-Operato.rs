@@ -1,9 +1,21 @@
+use kube::CustomResource;
+use kube::CustomResourceExt;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FunctionDeployment {
+#[derive(CustomResource, Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
+#[kube(
+    group = "operato.rs",
+    version = "v1",
+    kind = "OpenFaaSFunction",
+    plural = "openfaasfunctions",
+    derive = "PartialEq",
+    status = "OpenFaasFunctionStatus",
+    namespaced
+)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenFaasFunctionSpec {
     /// service is the name of the function deployment
     pub service: String,
 
@@ -46,8 +58,33 @@ pub struct FunctionDeployment {
 }
 
 /// FunctionResources Memory and CPU
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct FunctionResources {
+    /// memory is the memory limit for the function
     pub memory: Option<String>,
+    /// cpu is the cpu limit for the function
     pub cpu: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
+pub enum OpenFaasFunctionStatus {
+    /// Ready means the function is ready to serve requests
+    Ok,
+    /// Error means the function is not ready to serve requests
+    Error,
+}
+
+impl OpenFaaSFunction {
+    pub fn generate_crds() -> String {
+        serde_yaml::to_string(&OpenFaaSFunction::crd()).expect("Failed to generate crds")
+    }
+
+    pub fn print_crds() {
+        println!("{}", OpenFaaSFunction::generate_crds());
+    }
+
+    pub fn write_crds_to_file(path: &str) {
+        let crds = OpenFaaSFunction::generate_crds();
+        std::fs::write(path, crds).expect("Failed to write crds to file");
+    }
 }
