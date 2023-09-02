@@ -80,7 +80,7 @@ impl OpenFaaSFunction {
     }
 
     pub fn print_crds() {
-        println!("{}", OpenFaaSFunction::generate_crds());
+        println!("{:#?}", OpenFaaSFunction::generate_crds());
     }
 
     pub fn write_crds_to_file(path: &str) {

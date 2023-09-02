@@ -1,4 +1,6 @@
 pub const FUNCTIONS_ENDPOINT: &str = "/system/functions";
+use std::ops::{Deref, DerefMut};
+
 use serde::{Deserialize, Serialize};
 
 use crate::crds::OpenFaasFunctionSpec;
@@ -14,4 +16,26 @@ pub struct FunctionDeployment {
 pub struct DeleteFunctionRequest {
     /// Name of deployed function
     function_name: String,
+}
+
+impl From<OpenFaasFunctionSpec> for FunctionDeployment {
+    fn from(open_faas_function_spec: OpenFaasFunctionSpec) -> Self {
+        Self {
+            open_faas_function_spec,
+        }
+    }
+}
+
+impl Deref for FunctionDeployment {
+    type Target = OpenFaasFunctionSpec;
+
+    fn deref(&self) -> &Self::Target {
+        &self.open_faas_function_spec
+    }
+}
+
+impl DerefMut for FunctionDeployment {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.open_faas_function_spec
+    }
 }
