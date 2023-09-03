@@ -6,6 +6,7 @@ use kube::{
     Api, Client as KubeClient, Error as KubeError, Resource, ResourceExt,
 };
 use openfaas_operato_rs::{
+    consts::*,
     crds::{OpenFaaSFunction, FINALIZER},
     faas_client::{BasicAuth, FaasCleint},
 };
@@ -14,9 +15,6 @@ use std::sync::Arc;
 use thiserror::Error as ThisError;
 use tokio::time::Duration;
 use tracing_subscriber::EnvFilter;
-
-const FAAS_GATEWAY_DEFAULT_URL: &str = "http://gateway.openfaas.svc.cluster.local:8080";
-const FAAS_FUNCTIONS_DEFAULT_NAMESPACE: &str = "openfaas-fn";
 
 pub fn init_tracing() {
     if std::env::var_os("RUST_LOG").is_none() {
@@ -52,73 +50,59 @@ enum ControllerError {
     InputError,
 }
 
-fn read_faas_gateway_url_from_env() -> String {
-    std::env::var("FAAS_GATEWAY_URL").unwrap_or_else(|_| {
-        tracing::warn!(
-            faas_gateway_url = %FAAS_GATEWAY_DEFAULT_URL,
-            "FAAS_GATEWAY_URL not set, using default"
-        );
-        FAAS_GATEWAY_DEFAULT_URL.to_string()
+fn read_from_env_or_default(env_var: &str, default: &str) -> String {
+    std::env::var(env_var).unwrap_or_else(|_| {
+        tracing::warn!(%default, "{env_var} not set, using default.");
+        default.to_string()
     })
 }
 
-async fn parse_url_and_perform_dns_lookup(url: &str) -> url::Url {
+async fn parse_url_and_perform_dns_lookup(url: &str, url_name: &str) -> url::Url {
     match url::Url::parse(url) {
-        Ok(mut parsed_url) => {
+        Ok(parsed_url) => {
             if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
-                tracing::warn!("FAAS_GATEWAY_URL must be a http or https url. Assuming http");
-                parsed_url.set_scheme("http").unwrap_or_else(|_| {
-                    tracing::error!("Failed to set scheme to http. Exiting");
-                    std::process::exit(1);
-                });
+                tracing::error!(url = %parsed_url, "{url_name} must be an http or https url. Exiting.");
+                std::process::exit(1);
             }
 
             let host = parsed_url.host_str().unwrap_or_else(|| {
-                tracing::error!("Failed to get host from FAAS_GATEWAY_URL. Exiting");
+                tracing::error!(url = %parsed_url, "Failed to get host from url. Exiting.");
                 std::process::exit(1);
             });
 
-            tracing::info!(faas_gateway_host = %host, "Performing dns lookup");
+            tracing::info!(%host, "Performing dns lookup.");
             match tokio::net::lookup_host(host).await {
                 Ok(mut addresses) => {
                     if addresses.next().is_none() {
-                        tracing::warn!("No ip addresses found for host");
+                        tracing::warn!(%host,"No ip addresses found for host.");
                     }
                 }
                 Err(error) => {
-                    tracing::warn!(%error, "Dns lookup failed");
+                    tracing::warn!(%error, %host, "Dns lookup failed.");
                 }
             };
 
             parsed_url
         }
         Err(error) => {
-            tracing::error!(%error, "Failed to parse FAAS_GATEWAY_URL. Exiting");
+            tracing::error!(%error, "Failed to parse {url_name}. Exiting");
             std::process::exit(1);
         }
     }
 }
 
 fn read_basic_auth_from_env() -> Option<BasicAuth> {
-    let gateway_username = std::env::var("FAAS_GATEWAY_USERNAME").ok();
-    let gateway_password = std::env::var("FAAS_GATEWAY_PASSWORD").ok();
+    let gateway_username = std::env::var(FAAS_GATEWAY_USERNAME_ENV_VAR).ok();
+    let gateway_password = std::env::var(FAAS_GATEWAY_PASSWORD_ENV_VAR).ok();
     match (gateway_username, gateway_password) {
         (Some(username), Some(password)) => Some(BasicAuth::new(username, password)),
         _ => {
-            tracing::warn!("FAAS_GATEWAY_USERNAME or FAAS_GATEWAY_PASSWORD not set");
+            tracing::warn!(
+                "{FAAS_GATEWAY_USERNAME_ENV_VAR} or {FAAS_GATEWAY_PASSWORD_ENV_VAR} not set.",
+            );
             None
         }
     }
-}
-
-fn read_functions_namespace_from_env() -> String {
-    std::env::var("FAAS_FUNCTIONS_NAMESPACE").unwrap_or_else(|_| {
-        tracing::warn!(
-            faas_functions_namespace = %FAAS_FUNCTIONS_DEFAULT_NAMESPACE,
-            "FAAS_FUNCTIONS_NAMESPACE not set, using default"
-        );
-        FAAS_FUNCTIONS_DEFAULT_NAMESPACE.to_string()
-    })
 }
 
 #[tokio::main]
@@ -126,23 +110,28 @@ async fn main() {
     init_tracing();
     OpenFaaSFunction::write_crds_to_file("crds.yaml");
 
-    let faas_gateway_url_str = read_faas_gateway_url_from_env();
+    let faas_gateway_url_str =
+        read_from_env_or_default(FAAS_GATEWAY_URL_ENV_VAR, FAAS_GATEWAY_DEFAULT_URL);
 
-    let faas_gateway_url = parse_url_and_perform_dns_lookup(&faas_gateway_url_str).await;
+    let faas_gateway_url =
+        parse_url_and_perform_dns_lookup(&faas_gateway_url_str, FAAS_GATEWAY_URL_ENV_VAR).await;
 
     let basic_auth = read_basic_auth_from_env();
 
-    let functions_namespace = read_functions_namespace_from_env();
+    let functions_namespace = read_from_env_or_default(
+        FAAS_FUNCTIONS_NAMESPACE_ENV_VAR,
+        FAAS_FUNCTIONS_DEFAULT_NAMESPACE,
+    );
 
     let faas_client = FaasCleint::new(faas_gateway_url, basic_auth).unwrap_or_else(|error| {
-        tracing::error!(%error, "Failed to create faas client. Exiting");
+        tracing::error!(%error, "Failed to create faas client. Exiting.");
         std::process::exit(1);
     });
 
     let kubernetes_client = match KubeClient::try_default().await {
         Ok(client) => client,
         Err(error) => {
-            tracing::error!(%error, "Failed to create kubernetes client. Exiting");
+            tracing::error!(%error, "Failed to create kubernetes client. Exiting.");
             std::process::exit(1);
         }
     };
@@ -157,10 +146,10 @@ async fn main() {
         .for_each(|reconciliation_result| async move {
             match reconciliation_result {
                 Ok(_) => {
-                    tracing::info!("Reconciliation successful");
+                    tracing::info!("Reconciliation successful.");
                 }
                 Err(error) => {
-                    tracing::error!(%error, "Reconciliation failed");
+                    tracing::error!(%error, "Reconciliation failed.");
                 }
             }
         })
@@ -176,13 +165,13 @@ async fn reconcile(
     let kubernetes_client = context.kubernetes_client.clone();
     let namespace: String = match openfaas_function.namespace() {
         None => {
-            tracing::error!(%name, "Resource has no namespace. Aborting");
+            tracing::error!(%name, "Resource has no namespace. Aborting.");
             return Err(ControllerError::InputError);
         }
         Some(namespace) => namespace,
     };
 
-    tracing::info!(%name, %namespace, "Reconciling resource");
+    tracing::info!(%name, %namespace, "Reconciling resource.");
 
     // if the resource is being deleted, remove finalizers and clean up
     if openfaas_function
@@ -191,9 +180,9 @@ async fn reconcile(
         .deletion_timestamp
         .is_some()
     {
-        tracing::info!(%name, %namespace, "Resource is being deleted");
+        tracing::info!(%name, %namespace, "Resource is being deleted.");
         remove_finalizers(kubernetes_client.clone(), &name, &namespace).await?;
-        tracing::info!(%name, %namespace, "Finalizers removed");
+        tracing::info!(%name, %namespace, "Finalizers removed.");
         return Ok(Action::await_change());
     }
 
@@ -205,13 +194,13 @@ async fn reconcile(
         .as_ref()
         .map_or(true, |finalizers| finalizers.is_empty())
     {
-        tracing::info!(%name, %namespace, "No finalizer found");
+        tracing::info!(%name, %namespace, "No finalizer found.");
         add_finalizer(kubernetes_client.clone(), &name, &namespace).await?;
-        tracing::info!(%name, %namespace, "Finalizer added ");
+        tracing::info!(%name, %namespace, "Finalizer added.");
         return Ok(Action::await_change());
     }
 
-    tracing::info!(%name, %namespace, "No action required");
+    tracing::info!(%name, %namespace, "No action required.");
     Ok(Action::await_change())
 }
 
