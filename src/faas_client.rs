@@ -1,11 +1,9 @@
-use crate::{
-    request::functions::{DeleteFunctionRequest, FunctionDeployment, FUNCTIONS_ENDPOINT},
-    util::remove_trailling_slash,
-};
+use crate::request::functions::{DeleteFunctionRequest, FunctionDeployment};
 use reqwest::{Error as ReqwestError, Method, Request, Response, StatusCode};
 use serde::Serialize;
 use serde_json::Error as SerdeJsonError;
 use thiserror::Error as ThisError;
+use url::Url;
 
 pub struct BasicAuth {
     username: String,
@@ -84,24 +82,20 @@ impl From<StatusCode> for RequestExecutionError {
 
 pub struct FaasCleint {
     client: reqwest::Client,
-    /// Base URL of the OpenFaaS gateway
-    /// e.g. http://gateway.openfaas:8080
-    base_url: String,
+    functions_endpoint: Url,
     basic_auth: Option<BasicAuth>,
 }
 
 impl FaasCleint {
-    pub fn new(base_url: String, basic_auth: Option<BasicAuth>) -> Self {
-        let base_url = remove_trailling_slash(&base_url);
-        Self {
+    /// Base URL of the OpenFaaS gateway
+    /// e.g. http://gateway.openfaas:8080
+    pub fn new(base_url: Url, basic_auth: Option<BasicAuth>) -> Result<Self, url::ParseError> {
+        let functions_endpoint = base_url.join("system/functions")?;
+        Ok(Self {
             client: reqwest::Client::new(),
-            base_url,
+            functions_endpoint,
             basic_auth,
-        }
-    }
-
-    fn get_functions_url(&self) -> String {
-        format!("{}{}", self.base_url, FUNCTIONS_ENDPOINT)
+        })
     }
 
     fn status_code_into_faas_result(status_code: StatusCode) -> FaasResult {
@@ -113,8 +107,7 @@ impl FaasCleint {
     }
 
     pub fn build_request<T: Serialize>(&self, method: Method, body: &T) -> RequestBuildResult {
-        let url = self.get_functions_url();
-        let mut builder = self.client.request(method, url);
+        let mut builder = self.client.request(method, self.functions_endpoint.clone());
         let body = serde_json::to_string(body)?;
 
         builder = builder

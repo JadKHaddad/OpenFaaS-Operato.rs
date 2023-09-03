@@ -1,9 +1,6 @@
-pub const FUNCTIONS_ENDPOINT: &str = "/system/functions";
-use std::ops::{Deref, DerefMut};
-
-use serde::{Deserialize, Serialize};
-
 use crate::crds::OpenFaasFunctionSpec;
+use serde::{Deserialize, Serialize};
+use std::ops::{Deref, DerefMut};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FunctionDeployment {
