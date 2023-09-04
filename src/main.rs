@@ -7,7 +7,7 @@ use kube::{
 };
 use openfaas_operato_rs::{
     consts::*,
-    crds::{OpenFaaSFunction, FINALIZER},
+    crds::{OnDeleteStatus, OnDeployStatus, OpenFaaSFunction, OpenFaasFunctionStatus, FINALIZER},
     faas_client::{BasicAuth, FaasCleint},
 };
 use serde_json::{json, Value};
@@ -172,6 +172,7 @@ async fn reconcile(
     };
 
     tracing::info!(%name, %namespace, "Reconciling resource.");
+    tracing::debug!("Resource data.\n\n{:#?}\n", openfaas_function);
 
     // if the resource is being deleted, remove finalizers and clean up
     if openfaas_function
@@ -186,22 +187,71 @@ async fn reconcile(
         return Ok(Action::await_change());
     }
 
-    // if there is no finalizer, add one
-    if openfaas_function
-        .as_ref()
-        .meta()
-        .finalizers
-        .as_ref()
-        .map_or(true, |finalizers| finalizers.is_empty())
-    {
-        tracing::info!(%name, %namespace, "No finalizer found.");
-        add_finalizer(kubernetes_client.clone(), &name, &namespace).await?;
-        tracing::info!(%name, %namespace, "Finalizer added.");
-        return Ok(Action::await_change());
+    let status = openfaas_function.as_ref().status.clone();
+    match status {
+        Some(OpenFaasFunctionStatus::OnDeploy(status)) => match status {
+            OnDeployStatus::FirstSeen => {
+                tracing::info!(%name, %namespace, "Status is first seen.");
+            }
+            OnDeployStatus::FinalizerSet => {
+                tracing::info!(%name, %namespace, "Status is finalizer set.");
+            }
+            OnDeployStatus::CouldNotReachFaaS => {
+                tracing::info!(%name, %namespace, "Status is could not reach faas.");
+            }
+            OnDeployStatus::FaaSRequestSent => {
+                tracing::info!(%name, %namespace, "Status is faas request sent.");
+            }
+            OnDeployStatus::FaaSReturnedBadRequestError => {
+                tracing::info!(%name, %namespace, "Status is faas returned bad request error.");
+            }
+            OnDeployStatus::FaaSReturnedNotFoundError => {
+                tracing::info!(%name, %namespace, "Status is faas returned not found error.");
+            }
+            OnDeployStatus::FaaSReturnedOk => {
+                tracing::info!(%name, %namespace, "Status is faas returned ok.");
+            }
+            OnDeployStatus::AlreadyDeployed => {
+                tracing::info!(%name, %namespace, "Status is already deployed.");
+            }
+            OnDeployStatus::Deployed => {
+                tracing::info!(%name, %namespace, "Status is deployed.");
+            }
+        },
+        Some(OpenFaasFunctionStatus::OnDelete(status)) => {
+            tracing::error!(%name, %namespace, ?status, "Unexpected status found. Aborting.");
+            return Err(ControllerError::InputError);
+        }
+        None => {
+            tracing::info!(%name, %namespace, "No status found. Setting status to first seen.");
+            let api: Api<OpenFaaSFunction> = Api::namespaced(kubernetes_client.clone(), &namespace);
+
+            let status = OpenFaasFunctionStatus::OnDeploy(OnDeployStatus::FirstSeen);
+            let status: Value = json!({ "status": status });
+
+            let patch: Patch<&Value> = Patch::Merge(&status);
+            api.patch(&name, &PatchParams::default(), &patch).await?;
+
+            tracing::info!(%name, %namespace, "Status set to first seen.");
+
+            // if there is no finalizer, add one
+            if openfaas_function
+                .as_ref()
+                .meta()
+                .finalizers
+                .as_ref()
+                .map_or(true, |finalizers| finalizers.is_empty())
+            {
+                tracing::info!(%name, %namespace, "No finalizer found.");
+                add_finalizer(kubernetes_client.clone(), &name, &namespace).await?;
+                tracing::info!(%name, %namespace, "Finalizer added.");
+                return Ok(Action::await_change());
+            }
+        }
     }
 
     tracing::info!(%name, %namespace, "No action required.");
-    Ok(Action::await_change())
+    Ok(Action::requeue(Duration::from_secs(10)))
 }
 
 fn on_error(

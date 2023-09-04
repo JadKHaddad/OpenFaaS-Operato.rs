@@ -70,10 +70,33 @@ pub struct FunctionResources {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
 pub enum OpenFaasFunctionStatus {
-    /// Ready means the function is ready to serve requests
-    Ok,
-    /// Error means the function is not ready to serve requests
-    Error,
+    OnDeploy(OnDeployStatus),
+    OnDelete(OnDeleteStatus),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
+pub enum OnDeployStatus {
+    FirstSeen,
+    FinalizerSet,
+    CouldNotReachFaaS,
+    FaaSRequestSent,
+    FaaSReturnedBadRequestError,
+    FaaSReturnedNotFoundError,
+    FaaSReturnedOk,
+    AlreadyDeployed,
+    Deployed,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
+pub enum OnDeleteStatus {
+    FirstSeen,
+    FinalizerRemoved,
+    CouldNotReachFaaS,
+    FaaSRequestSent,
+    FaaSReturnedBadRequestError,
+    FaaSReturnedNotFoundError,
+    FaaSReturnedOk,
+    AlreadyDeleted,
 }
 
 impl OpenFaaSFunction {
