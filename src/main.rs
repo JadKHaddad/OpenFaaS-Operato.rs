@@ -2,8 +2,8 @@ use futures::stream::StreamExt;
 use kube::{
     api::{Patch, PatchParams, PostParams},
     core::object::HasStatus,
-    runtime::Controller,
     runtime::{controller::Action, watcher::Config},
+    runtime::{finalizer::Event, Controller},
     Api, Client as KubeClient, Error as KubeError, Resource, ResourceExt,
 };
 use openfaas_operato_rs::{
@@ -183,6 +183,12 @@ async fn reconcile(
     tracing::debug!("Resource data.\n\n{:#?}\n", openfaas_function);
 
     let api: Api<OpenFaaSFunction> = Api::namespaced(kubernetes_client.clone(), &namespace);
+
+    // async fn rec(event: Event<OpenFaaSFunction>) -> Result<Action, ReconcileError> {
+    //     Ok(Action::requeue(Duration::from_secs(10)))
+    // }
+
+    // kube::runtime::finalizer::finalizer(&api, "my-finalizer", openfaas_function.clone(), rec).await;
 
     // if the resource is being deleted, remove finalizers and clean up
     if openfaas_function
