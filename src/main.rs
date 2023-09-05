@@ -1,6 +1,7 @@
 use futures::stream::StreamExt;
 use kube::{
-    api::{Patch, PatchParams},
+    api::{Patch, PatchParams, PostParams},
+    core::object::HasStatus,
     runtime::Controller,
     runtime::{controller::Action, watcher::Config},
     Api, Client as KubeClient, Error as KubeError, Resource, ResourceExt,
@@ -39,15 +40,21 @@ struct ContextData {
 }
 
 #[derive(ThisError, Debug)]
-enum ControllerError {
+enum ReconcileError {
     #[error("Kubernetes error: {0}")]
-    KubeError(
+    Kube(
         #[from]
         #[source]
         KubeError,
     ),
-    #[error("Invalid CRD")]
-    InputError,
+    #[error("Resource has no namespace.")]
+    Namespace,
+    #[error("Failed to serialize resource.")]
+    Serilization(
+        #[from]
+        #[source]
+        serde_json::Error,
+    ),
 }
 
 fn read_from_env_or_default(env_var: &str, default: &str) -> String {
@@ -159,20 +166,23 @@ async fn main() {
 async fn reconcile(
     openfaas_function: Arc<OpenFaaSFunction>,
     context: Arc<ContextData>,
-) -> Result<Action, ControllerError> {
+) -> Result<Action, ReconcileError> {
     let name = openfaas_function.name_any();
+    let kubernetes_client = &context.kubernetes_client;
 
-    let kubernetes_client = context.kubernetes_client.clone();
     let namespace: String = match openfaas_function.namespace() {
         None => {
             tracing::error!(%name, "Resource has no namespace. Aborting.");
-            return Err(ControllerError::InputError);
+            return Err(ReconcileError::Namespace);
         }
+
         Some(namespace) => namespace,
     };
 
     tracing::info!(%name, %namespace, "Reconciling resource.");
     tracing::debug!("Resource data.\n\n{:#?}\n", openfaas_function);
+
+    let api: Api<OpenFaaSFunction> = Api::namespaced(kubernetes_client.clone(), &namespace);
 
     // if the resource is being deleted, remove finalizers and clean up
     if openfaas_function
@@ -187,7 +197,8 @@ async fn reconcile(
         return Ok(Action::await_change());
     }
 
-    let status = openfaas_function.as_ref().status.clone();
+    let status = openfaas_function.status();
+
     match status {
         Some(OpenFaasFunctionStatus::OnDeploy(status)) => match status {
             OnDeployStatus::FirstSeen => {
@@ -220,23 +231,25 @@ async fn reconcile(
         },
         Some(OpenFaasFunctionStatus::OnDelete(status)) => {
             tracing::error!(%name, %namespace, ?status, "Unexpected status found. Aborting.");
-            return Err(ControllerError::InputError);
+            return Err(ReconcileError::Namespace);
         }
         None => {
             tracing::info!(%name, %namespace, "No status found. Setting status to first seen.");
-            let api: Api<OpenFaaSFunction> = Api::namespaced(kubernetes_client.clone(), &namespace);
 
-            let status = OpenFaasFunctionStatus::OnDeploy(OnDeployStatus::FirstSeen);
-            let status: Value = json!({ "status": status });
-
-            let patch: Patch<&Value> = Patch::Merge(&status);
-            api.patch(&name, &PatchParams::default(), &patch).await?;
+            let mut openfaas_function_inner = api.get_status(&name).await?;
+            openfaas_function_inner.status =
+                Some(OpenFaasFunctionStatus::OnDeploy(OnDeployStatus::FirstSeen));
+            api.replace_status(
+                &name,
+                &PostParams::default(),
+                serde_json::to_vec(&openfaas_function_inner)?,
+            )
+            .await?;
 
             tracing::info!(%name, %namespace, "Status set to first seen.");
 
             // if there is no finalizer, add one
-            if openfaas_function
-                .as_ref()
+            if openfaas_function_inner
                 .meta()
                 .finalizers
                 .as_ref()
@@ -256,7 +269,7 @@ async fn reconcile(
 
 fn on_error(
     openfaas_function: Arc<OpenFaaSFunction>,
-    error: &ControllerError,
+    error: &ReconcileError,
     _context: Arc<ContextData>,
 ) -> Action {
     Action::requeue(Duration::from_secs(10))
