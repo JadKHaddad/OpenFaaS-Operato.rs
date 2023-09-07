@@ -98,43 +98,10 @@ spec:
             - image
             - service
             type: object
-          status:
-            nullable: true
-            oneOf:
-            - required:
-              - OnDeploy
-            - required:
-              - OnDelete
-            properties:
-              OnDelete:
-                enum:
-                - FirstSeen
-                - FinalizerRemoved
-                - CouldNotReachFaaS
-                - FaaSRequestSent
-                - FaaSReturnedBadRequestError
-                - FaaSReturnedNotFoundError
-                - FaaSReturnedOk
-                - AlreadyDeleted
-                type: string
-              OnDeploy:
-                enum:
-                - FirstSeen
-                - FinalizerSet
-                - CouldNotReachFaaS
-                - FaaSRequestSent
-                - FaaSReturnedBadRequestError
-                - FaaSReturnedNotFoundError
-                - FaaSReturnedOk
-                - AlreadyDeployed
-                - Deployed
-                type: string
-            type: object
         required:
         - spec
         title: OpenFaaSFunction
         type: object
     served: true
     storage: true
-    subresources:
-      status: {}
+    subresources: {}

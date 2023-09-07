@@ -4,8 +4,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const FINALIZER: &str = "openfaasfunctions.operato.rs/finalizer";
-
 #[derive(CustomResource, Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
 #[kube(
     group = "operato.rs",
@@ -13,7 +11,6 @@ pub const FINALIZER: &str = "openfaasfunctions.operato.rs/finalizer";
     kind = "OpenFaaSFunction",
     plural = "openfaasfunctions",
     derive = "PartialEq",
-    status = "OpenFaasFunctionStatus",
     namespaced
 )]
 #[serde(rename_all = "camelCase")]
@@ -66,37 +63,6 @@ pub struct FunctionResources {
     pub memory: Option<String>,
     /// cpu is the cpu limit for the function
     pub cpu: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
-pub enum OpenFaasFunctionStatus {
-    OnDeploy(OnDeployStatus),
-    OnDelete(OnDeleteStatus),
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
-pub enum OnDeployStatus {
-    FirstSeen,
-    FinalizerSet,
-    CouldNotReachFaaS,
-    FaaSRequestSent,
-    FaaSReturnedBadRequestError,
-    FaaSReturnedNotFoundError,
-    FaaSReturnedOk,
-    AlreadyDeployed,
-    Deployed,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
-pub enum OnDeleteStatus {
-    FirstSeen,
-    FinalizerRemoved,
-    CouldNotReachFaaS,
-    FaaSRequestSent,
-    FaaSReturnedBadRequestError,
-    FaaSReturnedNotFoundError,
-    FaaSReturnedOk,
-    AlreadyDeleted,
 }
 
 impl OpenFaaSFunction {

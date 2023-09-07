@@ -1,16 +1,17 @@
 use futures::stream::StreamExt;
+use k8s_openapi::api::{apps::v1::Deployment, core::v1::Namespace};
 use kube::{
     api::{Patch, PatchParams, PostParams},
     core::object::HasStatus,
-    runtime::{controller::Action, watcher::Config},
+    error::ErrorResponse,
+    runtime::{
+        controller::Action,
+        watcher::{self, Config},
+    },
     runtime::{finalizer::Event, Controller},
     Api, Client as KubeClient, Error as KubeError, Resource, ResourceExt,
 };
-use openfaas_operato_rs::{
-    consts::*,
-    crds::{OnDeleteStatus, OnDeployStatus, OpenFaaSFunction, OpenFaasFunctionStatus, FINALIZER},
-    faas_client::{BasicAuth, FaasCleint},
-};
+use openfaas_operato_rs::{consts::*, crds::OpenFaaSFunction};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use thiserror::Error as ThisError;
@@ -35,7 +36,6 @@ pub fn init_tracing() {
 }
 
 struct ContextData {
-    faas_client: FaasCleint,
     kubernetes_client: KubeClient,
 }
 
@@ -64,76 +64,13 @@ fn read_from_env_or_default(env_var: &str, default: &str) -> String {
     })
 }
 
-async fn parse_url_and_perform_dns_lookup(url: &str, url_name: &str) -> url::Url {
-    match url::Url::parse(url) {
-        Ok(parsed_url) => {
-            if parsed_url.scheme() != "http" && parsed_url.scheme() != "https" {
-                tracing::error!(url = %parsed_url, "{url_name} must be an http or https url. Exiting.");
-                std::process::exit(1);
-            }
-
-            let host = parsed_url.host_str().unwrap_or_else(|| {
-                tracing::error!(url = %parsed_url, "Failed to get host from url. Exiting.");
-                std::process::exit(1);
-            });
-
-            tracing::info!(%host, "Performing dns lookup.");
-            match tokio::net::lookup_host(host).await {
-                Ok(mut addresses) => {
-                    if addresses.next().is_none() {
-                        tracing::warn!(%host,"No ip addresses found for host.");
-                    }
-                }
-                Err(error) => {
-                    tracing::warn!(%error, %host, "Dns lookup failed.");
-                }
-            };
-
-            parsed_url
-        }
-        Err(error) => {
-            tracing::error!(%error, "Failed to parse {url_name}. Exiting");
-            std::process::exit(1);
-        }
-    }
-}
-
-fn read_basic_auth_from_env() -> Option<BasicAuth> {
-    let gateway_username = std::env::var(FAAS_GATEWAY_USERNAME_ENV_VAR).ok();
-    let gateway_password = std::env::var(FAAS_GATEWAY_PASSWORD_ENV_VAR).ok();
-    match (gateway_username, gateway_password) {
-        (Some(username), Some(password)) => Some(BasicAuth::new(username, password)),
-        _ => {
-            tracing::warn!(
-                "{FAAS_GATEWAY_USERNAME_ENV_VAR} or {FAAS_GATEWAY_PASSWORD_ENV_VAR} not set.",
-            );
-            None
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() {
     init_tracing();
     OpenFaaSFunction::write_crds_to_file("crds.yaml");
 
-    let faas_gateway_url_str =
-        read_from_env_or_default(FAAS_GATEWAY_URL_ENV_VAR, FAAS_GATEWAY_DEFAULT_URL);
-
-    let faas_gateway_url =
-        parse_url_and_perform_dns_lookup(&faas_gateway_url_str, FAAS_GATEWAY_URL_ENV_VAR).await;
-
-    let basic_auth = read_basic_auth_from_env();
-
-    let functions_namespace = read_from_env_or_default(
-        FAAS_FUNCTIONS_NAMESPACE_ENV_VAR,
-        FAAS_FUNCTIONS_DEFAULT_NAMESPACE,
-    );
-
-    let faas_client = FaasCleint::new(faas_gateway_url, basic_auth).unwrap_or_else(|error| {
-        tracing::error!(%error, "Failed to create faas client. Exiting.");
-        std::process::exit(1);
-    });
+    let functions_namespace =
+        read_from_env_or_default(FUNCTIONS_NAMESPACE_ENV_VAR, FUNCTIONS_DEFAULT_NAMESPACE);
 
     let kubernetes_client = match KubeClient::try_default().await {
         Ok(client) => client,
@@ -142,13 +79,32 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let crd_api: Api<OpenFaaSFunction> = Api::all(kubernetes_client.clone());
-    let context = Arc::new(ContextData {
-        faas_client,
-        kubernetes_client,
-    });
 
-    Controller::new(crd_api.clone(), Config::default())
+    tracing::info!(namespace = %functions_namespace, "Checking if namespace exists.");
+    let namespace_api: Api<Namespace> = Api::all(kubernetes_client.clone());
+    match namespace_api.get(&functions_namespace).await {
+        Ok(_) => {
+            tracing::info!(namespace = %functions_namespace, "Namespace exists.");
+        }
+        Err(error) => {
+            if let KubeError::Api(ErrorResponse { code: 404, .. }) = error {
+                tracing::warn!(%error, namespace = %functions_namespace, "Namespace does not exist.");
+            } else {
+                tracing::warn!(%error, namespace = %functions_namespace, "Failed to check if namespace exists.");
+            }
+        }
+    }
+
+    let crd_api: Api<OpenFaaSFunction> = Api::all(kubernetes_client.clone());
+    let deployment_api: Api<Deployment> =
+        Api::namespaced(kubernetes_client.clone(), &functions_namespace);
+
+    let context = Arc::new(ContextData { kubernetes_client });
+
+    tracing::info!("Starting controller.");
+    Controller::new(crd_api, Config::default())
+        .owns(deployment_api, Config::default())
+        .shutdown_on_signal()
         .run(reconcile, on_error, context)
         .for_each(|reconciliation_result| async move {
             match reconciliation_result {
@@ -161,6 +117,7 @@ async fn main() {
             }
         })
         .await;
+    tracing::info!("Controller terminated.");
 }
 
 async fn reconcile(
@@ -184,93 +141,18 @@ async fn reconcile(
 
     let api: Api<OpenFaaSFunction> = Api::namespaced(kubernetes_client.clone(), &namespace);
 
-    // async fn rec(event: Event<OpenFaaSFunction>) -> Result<Action, ReconcileError> {
-    //     Ok(Action::requeue(Duration::from_secs(10)))
-    // }
+    match determine_reconcile_action(openfaas_function.as_ref()) {
+        ReconcileAction::Apply => {
+            tracing::info!(%name, %namespace, "Applying resource.");
 
-    // kube::runtime::finalizer::finalizer(&api, "my-finalizer", openfaas_function.clone(), rec).await;
-
-    // if the resource is being deleted, remove finalizers and clean up
-    if openfaas_function
-        .as_ref()
-        .meta()
-        .deletion_timestamp
-        .is_some()
-    {
-        tracing::info!(%name, %namespace, "Resource is being deleted.");
-        remove_finalizers(kubernetes_client.clone(), &name, &namespace).await?;
-        tracing::info!(%name, %namespace, "Finalizers removed.");
-        return Ok(Action::await_change());
-    }
-
-    let status = openfaas_function.status();
-
-    match status {
-        Some(OpenFaasFunctionStatus::OnDeploy(status)) => match status {
-            OnDeployStatus::FirstSeen => {
-                tracing::info!(%name, %namespace, "Status is first seen.");
-            }
-            OnDeployStatus::FinalizerSet => {
-                tracing::info!(%name, %namespace, "Status is finalizer set.");
-            }
-            OnDeployStatus::CouldNotReachFaaS => {
-                tracing::info!(%name, %namespace, "Status is could not reach faas.");
-            }
-            OnDeployStatus::FaaSRequestSent => {
-                tracing::info!(%name, %namespace, "Status is faas request sent.");
-            }
-            OnDeployStatus::FaaSReturnedBadRequestError => {
-                tracing::info!(%name, %namespace, "Status is faas returned bad request error.");
-            }
-            OnDeployStatus::FaaSReturnedNotFoundError => {
-                tracing::info!(%name, %namespace, "Status is faas returned not found error.");
-            }
-            OnDeployStatus::FaaSReturnedOk => {
-                tracing::info!(%name, %namespace, "Status is faas returned ok.");
-            }
-            OnDeployStatus::AlreadyDeployed => {
-                tracing::info!(%name, %namespace, "Status is already deployed.");
-            }
-            OnDeployStatus::Deployed => {
-                tracing::info!(%name, %namespace, "Status is deployed.");
-            }
-        },
-        Some(OpenFaasFunctionStatus::OnDelete(status)) => {
-            tracing::error!(%name, %namespace, ?status, "Unexpected status found. Aborting.");
-            return Err(ReconcileError::Namespace);
+            Ok(Action::requeue(Duration::from_secs(10)))
         }
-        None => {
-            tracing::info!(%name, %namespace, "No status found. Setting status to first seen.");
+        ReconcileAction::Delete => {
+            tracing::info!(%name, %namespace, "Deleting resource.");
 
-            let mut openfaas_function_inner = api.get_status(&name).await?;
-            openfaas_function_inner.status =
-                Some(OpenFaasFunctionStatus::OnDeploy(OnDeployStatus::FirstSeen));
-            api.replace_status(
-                &name,
-                &PostParams::default(),
-                serde_json::to_vec(&openfaas_function_inner)?,
-            )
-            .await?;
-
-            tracing::info!(%name, %namespace, "Status set to first seen.");
-
-            // if there is no finalizer, add one
-            if openfaas_function_inner
-                .meta()
-                .finalizers
-                .as_ref()
-                .map_or(true, |finalizers| finalizers.is_empty())
-            {
-                tracing::info!(%name, %namespace, "No finalizer found.");
-                add_finalizer(kubernetes_client.clone(), &name, &namespace).await?;
-                tracing::info!(%name, %namespace, "Finalizer added.");
-                return Ok(Action::await_change());
-            }
+            Ok(Action::requeue(Duration::from_secs(10)))
         }
     }
-
-    tracing::info!(%name, %namespace, "No action required.");
-    Ok(Action::requeue(Duration::from_secs(10)))
 }
 
 fn on_error(
@@ -281,49 +163,16 @@ fn on_error(
     Action::requeue(Duration::from_secs(10))
 }
 
-async fn add_finalizer(
-    client: KubeClient,
-    name: &str,
-    namespace: &str,
-) -> Result<OpenFaaSFunction, KubeError> {
-    let api: Api<OpenFaaSFunction> = Api::namespaced(client, namespace);
-    // check for resource existence
-    let resource = api.get(name).await?;
-    // check if finalizer already exists
-    if resource
-        .metadata
-        .finalizers
-        .as_ref()
-        .map(|finalizers| finalizers.contains(&FINALIZER.to_string()))
-        .unwrap_or(false)
-    {
-        return Ok(resource);
+fn determine_reconcile_action(openfaas_function: &OpenFaaSFunction) -> ReconcileAction {
+    if openfaas_function.meta().deletion_timestamp.is_some() {
+        return ReconcileAction::Delete;
     }
 
-    let finalizers: Value = json!({
-        "metadata": {
-            "finalizers": [FINALIZER]
-        }
-    });
-
-    let patch: Patch<&Value> = Patch::Merge(&finalizers);
-    api.patch(name, &PatchParams::default(), &patch).await
+    ReconcileAction::Apply
 }
 
-pub async fn remove_finalizers(
-    client: KubeClient,
-    name: &str,
-    namespace: &str,
-) -> Result<OpenFaaSFunction, KubeError> {
-    let api: Api<OpenFaaSFunction> = Api::namespaced(client, namespace);
-    // check for resource existence
-    let _resource = api.get(name).await?;
-    let finalizers: Value = json!({
-        "metadata": {
-            "finalizers": null
-        }
-    });
-
-    let patch: Patch<&Value> = Patch::Merge(&finalizers);
-    api.patch(name, &PatchParams::default(), &patch).await
+enum ReconcileAction {
+    Apply,
+    /// Since we are not setting a finalizer, we may not be notified of deletion.
+    Delete,
 }

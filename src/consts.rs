@@ -1,7 +1,2 @@
-pub const FAAS_GATEWAY_URL_ENV_VAR: &str = "FAAS_GATEWAY_URL";
-pub const FAAS_GATEWAY_USERNAME_ENV_VAR: &str = "FAAS_GATEWAY_USERNAME";
-pub const FAAS_GATEWAY_PASSWORD_ENV_VAR: &str = "FAAS_GATEWAY_PASSWORD";
-pub const FAAS_FUNCTIONS_NAMESPACE_ENV_VAR: &str = "FAAS_FUNCTIONS_NAMESPACE";
-
-pub const FAAS_GATEWAY_DEFAULT_URL: &str = "http://gateway.openfaas.svc.cluster.local:8080";
-pub const FAAS_FUNCTIONS_DEFAULT_NAMESPACE: &str = "openfaas-fn";
+pub const FUNCTIONS_NAMESPACE_ENV_VAR: &str = "FUNCTIONS_NAMESPACE";
+pub const FUNCTIONS_DEFAULT_NAMESPACE: &str = "openfaas-fn";
