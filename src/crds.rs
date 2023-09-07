@@ -1,3 +1,5 @@
+use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::core::v1::Service;
 use kube::CustomResource;
 use kube::CustomResourceExt;
 use schemars::JsonSchema;
@@ -87,5 +89,57 @@ impl OpenFaaSFunction {
     pub fn write_crds_to_file(path: &str) {
         let crds = OpenFaaSFunction::generate_crds();
         std::fs::write(path, crds).expect("Failed to write crds to file");
+    }
+}
+
+pub enum DeploymentDiff {
+    /// If ```OpenFaasFunctionSpec::service``` is not contained in the deployment containers
+    ContainerDoesNotExist,
+    /// If ```OpenFaasFunctionSpec::service``` is contained in the deployment containers,
+    /// but image is different
+    Image,
+    /// EnvProcess is different
+    EnvProcess,
+    /// EnvVars are not contained
+    EnvVars,
+    /// Constraints are not contained
+    Constraints,
+    /// Secrets are not contained
+    Secrets,
+    /// Labels are not contained
+    Labels,
+    /// Annotations are not contained
+    Annotations,
+    /// Limits are different, or not defined
+    Limits,
+    /// Requests are different, or not defined
+    Requests,
+    /// ReadOnlyRootFilesystem is different, or not defined
+    ReadOnlyRootFilesystem,
+}
+
+pub enum ServiceDiff {}
+
+impl OpenFaasFunctionSpec {
+    pub fn deployment_diffs(&self, deployment: &Deployment) -> Vec<DeploymentDiff> {
+        unimplemented!()
+    }
+
+    pub fn service_diffs(&self, service: &Service) -> Vec<ServiceDiff> {
+        unimplemented!()
+    }
+}
+
+/// Generate a fresh deployment
+impl From<&OpenFaasFunctionSpec> for Deployment {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        unimplemented!()
+    }
+}
+
+/// Generate a fresh service
+impl From<&OpenFaasFunctionSpec> for Service {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        unimplemented!()
     }
 }

@@ -4,7 +4,7 @@ provider:
 
 functions:
   node-info:
-    sercice: node-info
+    service: node-info
     image: ghcr.io/openfaas/nodeinfo:latest
     namespace: openfaas-fn
     env_process: null
