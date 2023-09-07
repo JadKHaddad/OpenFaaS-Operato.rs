@@ -1,4 +1,4 @@
-apiVersion: operato.rs/v1
+apiVersion: operato.rs/v1alpha1
 kind: OpenFaaSFunction
 metadata:
   name: nodeinfo

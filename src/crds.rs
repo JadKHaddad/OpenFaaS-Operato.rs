@@ -6,12 +6,10 @@ use std::collections::HashMap;
 
 pub const FINALIZER_NAME: &str = "openfaasfunctions.operato.rs/finalizer";
 
-// TODO: constraints will be sent to the faas-provider, so we need the faas_client
-
 #[derive(CustomResource, Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
 #[kube(
     group = "operato.rs",
-    version = "v1",
+    version = "v1alpha1",
     kind = "OpenFaaSFunction",
     plural = "openfaasfunctions",
     derive = "PartialEq",

@@ -1,0 +1,29 @@
+provider:
+  name: openfaas
+  gateway: http://127.0.0.1:8080
+
+functions:
+  node-info:
+    sercice: node-info
+    image: ghcr.io/openfaas/nodeinfo:latest
+    namespace: openfaas-fn
+    env_process: null
+    env_vars:
+      VAR: "VALUE"
+      VAR2: "VALUE2"
+    constraints:
+      - "node.platform.os == linux"
+    secrets: null
+    labels:
+      label: "value"
+      label2: "value2"
+    annotations:
+      annotation: "value"
+      annotation2: "value2"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    read_only_root_filesystem: true
