@@ -98,10 +98,17 @@ spec:
             - image
             - service
             type: object
+          status:
+            enum:
+            - Deployed
+            - InvalidNamespace
+            nullable: true
+            type: string
         required:
         - spec
         title: OpenFaaSFunction
         type: object
     served: true
     storage: true
-    subresources: {}
+    subresources:
+      status: {}
