@@ -77,7 +77,7 @@ enum ApplyError {
 }
 
 #[derive(ThisError, Debug)]
-enum DeleteError {}
+enum CleanupError {}
 
 #[derive(ThisError, Debug)]
 enum FinalizeError {
@@ -88,11 +88,11 @@ enum FinalizeError {
         ApplyError,
     ),
 
-    #[error("Failed to delete resource: {0}")]
-    Delete(
+    #[error("Failed to cleanup resource: {0}")]
+    Cleanup(
         #[from]
         #[source]
-        DeleteError,
+        CleanupError,
     ),
 }
 
@@ -209,9 +209,15 @@ async fn reconcile(
                     )
                     .await
                     .map_err(FinalizeError::Apply),
-                    Event::Cleanup(_) => cleanup(&name, &resource_namespace)
-                        .await
-                        .map_err(FinalizeError::Delete),
+                    Event::Cleanup(openfaas_function_crd) => cleanup(
+                        api,
+                        context,
+                        openfaas_function_crd,
+                        &name,
+                        &resource_namespace,
+                    )
+                    .await
+                    .map_err(FinalizeError::Cleanup),
                 }
             },
         )
@@ -311,7 +317,13 @@ async fn apply(
     Ok(Action::requeue(Duration::from_secs(10)))
 }
 
-async fn cleanup(name: &str, resource_namespace: &str) -> Result<Action, DeleteError> {
+async fn cleanup(
+    _api: Api<OpenFaaSFunction>,
+    _context: Arc<ContextData>,
+    _openfaas_function_crd: Arc<OpenFaaSFunction>,
+    name: &str,
+    resource_namespace: &str,
+) -> Result<Action, CleanupError> {
     tracing::info!(%name, %resource_namespace, "Deleting resource.");
 
     tracing::info!(%name, %resource_namespace, "Awaiting change.");
