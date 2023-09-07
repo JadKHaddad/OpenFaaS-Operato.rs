@@ -69,7 +69,8 @@ pub struct FunctionResources {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
 pub enum OpenFaasFunctionStatus {
     Deployed,
-    InvalidNamespace,
+    InvalidCRDNamespace,
+    InvalidFunctionNamespace,
 }
 
 impl OpenFaaSFunction {

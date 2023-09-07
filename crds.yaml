@@ -101,7 +101,8 @@ spec:
           status:
             enum:
             - Deployed
-            - InvalidNamespace
+            - InvalidCRDNamespace
+            - InvalidFunctionNamespace
             nullable: true
             type: string
         required:
