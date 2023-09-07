@@ -1,18 +1,12 @@
 use futures::stream::StreamExt;
 use k8s_openapi::api::{apps::v1::Deployment, core::v1::Namespace};
 use kube::{
-    api::{Patch, PatchParams, PostParams},
-    core::object::HasStatus,
     error::ErrorResponse,
-    runtime::{
-        controller::Action,
-        watcher::{self, Config},
-    },
-    runtime::{finalizer::Event, Controller},
+    runtime::Controller,
+    runtime::{controller::Action, watcher::Config},
     Api, Client as KubeClient, Error as KubeError, Resource, ResourceExt,
 };
 use openfaas_operato_rs::{consts::*, crds::OpenFaaSFunction};
-use serde_json::{json, Value};
 use std::sync::Arc;
 use thiserror::Error as ThisError;
 use tokio::time::Duration;
