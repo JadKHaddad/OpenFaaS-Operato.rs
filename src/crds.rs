@@ -4,6 +4,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub const FINALIZER_NAME: &str = "openfaasfunctions.operato.rs/finalizer";
+
 // TODO: constraints will be sent to the faas-provider, so we need the faas_client
 
 #[derive(CustomResource, Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]

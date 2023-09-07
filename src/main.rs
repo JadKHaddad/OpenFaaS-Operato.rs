@@ -6,13 +6,17 @@ use k8s_openapi::api::{
 use kube::{
     api::PostParams,
     error::ErrorResponse,
-    runtime::Controller,
-    runtime::{controller::Action, watcher::Config},
+    runtime::{
+        controller::Action,
+        finalizer::{Error as FinalizerError, Event},
+        watcher::Config,
+    },
+    runtime::{finalizer, Controller},
     Api, Client as KubeClient, Error as KubeError, Resource, ResourceExt,
 };
 use openfaas_operato_rs::{
     consts::*,
-    crds::{OpenFaaSFunction, OpenFaasFunctionStatus},
+    crds::{OpenFaaSFunction, OpenFaasFunctionStatus, FINALIZER_NAME},
 };
 use std::sync::Arc;
 use thiserror::Error as ThisError;
@@ -51,11 +55,44 @@ enum ReconcileError {
     ),
     #[error("Resource has no namespace.")]
     Namespace,
+
+    #[error(transparent)]
+    FinalizeError(#[from] FinalizerError<FinalizeError>),
+}
+
+#[derive(ThisError, Debug)]
+enum ApplyError {
+    #[error("Kubernetes error: {0}")]
+    Kube(
+        #[from]
+        #[source]
+        KubeError,
+    ),
     #[error("Failed to serialize resource.")]
     Serilization(
         #[from]
         #[source]
         serde_json::Error,
+    ),
+}
+
+#[derive(ThisError, Debug)]
+enum DeleteError {}
+
+#[derive(ThisError, Debug)]
+enum FinalizeError {
+    #[error("Failed to apply resource: {0}")]
+    Apply(
+        #[from]
+        #[source]
+        ApplyError,
+    ),
+
+    #[error("Failed to delete resource: {0}")]
+    Delete(
+        #[from]
+        #[source]
+        DeleteError,
     ),
 }
 
@@ -136,7 +173,6 @@ async fn reconcile(
     context: Arc<ContextData>,
 ) -> Result<Action, ReconcileError> {
     let name = openfaas_function_crd.name_any();
-    let kubernetes_client = &context.kubernetes_client;
 
     let resource_namespace: String = match openfaas_function_crd.namespace() {
         None => {
@@ -148,17 +184,59 @@ async fn reconcile(
     };
 
     tracing::info!(%name, %resource_namespace, "Reconciling resource.");
-    // tracing::debug!("Resource data.\n\n{:#?}\n", openfaas_function);
 
     let api: Api<OpenFaaSFunction> =
-        Api::namespaced(kubernetes_client.clone(), &resource_namespace);
+        Api::namespaced(context.kubernetes_client.clone(), &resource_namespace);
+
+    async move {
+        let resource_namespace = resource_namespace.clone();
+        finalizer(
+            &api,
+            FINALIZER_NAME,
+            openfaas_function_crd,
+            |event| async move {
+                let api: Api<OpenFaaSFunction> =
+                    Api::namespaced(context.kubernetes_client.clone(), &resource_namespace);
+
+                // TODO: create spans for each event Apply and Cleanup
+                match event {
+                    Event::Apply(openfaas_function_crd) => apply(
+                        api,
+                        context,
+                        openfaas_function_crd,
+                        &name,
+                        &resource_namespace,
+                    )
+                    .await
+                    .map_err(FinalizeError::Apply),
+                    Event::Cleanup(_) => cleanup(&name, &resource_namespace)
+                        .await
+                        .map_err(FinalizeError::Delete),
+                }
+            },
+        )
+        .await
+    }
+    .await
+    .map_err(ReconcileError::FinalizeError)
+}
+
+async fn apply(
+    api: Api<OpenFaaSFunction>,
+    context: Arc<ContextData>,
+    openfaas_function_crd: Arc<OpenFaaSFunction>,
+    name: &str,
+    resource_namespace: &str,
+) -> Result<Action, ApplyError> {
+    tracing::info!(%name, %resource_namespace, "Applying resource.");
 
     let functions_namespace = &context.functions_namespace;
+
     tracing::info!(%name, %resource_namespace, %functions_namespace, "Comparing resource's namespace to functions namespace.");
-    if &resource_namespace != functions_namespace {
+    if resource_namespace != functions_namespace {
         tracing::error!(%name, %resource_namespace, %functions_namespace, "Resource's namespace does not match functions namespace.");
 
-        let mut openfaas_function_crd_inner = api.get_status(&name).await?;
+        let mut openfaas_function_crd_inner = api.get_status(name).await?;
         match openfaas_function_crd_inner.status {
             Some(OpenFaasFunctionStatus::InvalidCRDNamespace) => {
                 tracing::info!(%name, %resource_namespace, "Resource already has invalid crd namespace status. Skipping.");
@@ -169,7 +247,7 @@ async fn reconcile(
                 openfaas_function_crd_inner.status =
                     Some(OpenFaasFunctionStatus::InvalidCRDNamespace);
                 api.replace_status(
-                    &name,
+                    name,
                     &PostParams::default(),
                     serde_json::to_vec(&openfaas_function_crd_inner)?,
                 )
@@ -188,6 +266,7 @@ async fn reconcile(
         None => {
             tracing::info!(%name, %resource_namespace, default = %functions_namespace, "Function has no namespace. Assuming default.");
         }
+
         Some(ref function_namespace) => {
             tracing::info!(%name, %resource_namespace, %function_namespace, "Function has namespace.");
             tracing::info!(%name, %resource_namespace, %function_namespace, %functions_namespace, "Comparing function's namespace to functions namespace.");
@@ -195,7 +274,7 @@ async fn reconcile(
             if function_namespace != functions_namespace {
                 tracing::error!(%name, %resource_namespace, %function_namespace, %functions_namespace, "Function's namespace does not match functions namespace.");
 
-                let mut openfaas_function_crd_inner = api.get_status(&name).await?;
+                let mut openfaas_function_crd_inner = api.get_status(name).await?;
                 match openfaas_function_crd_inner.status {
                     Some(OpenFaasFunctionStatus::InvalidFunctionNamespace) => {
                         tracing::info!(%name, %resource_namespace, %function_namespace, %functions_namespace, "Resource already has invalid function namespace status. Skipping.");
@@ -206,7 +285,7 @@ async fn reconcile(
                         openfaas_function_crd_inner.status =
                             Some(OpenFaasFunctionStatus::InvalidFunctionNamespace);
                         api.replace_status(
-                            &name,
+                            name,
                             &PostParams::default(),
                             serde_json::to_vec(&openfaas_function_crd_inner)?,
                         )
@@ -223,25 +302,20 @@ async fn reconcile(
         }
     }
 
-    match determine_reconcile_action(openfaas_function_crd.as_ref()) {
-        ReconcileAction::Apply => {
-            tracing::info!(%name, %resource_namespace, "Applying resource.");
+    // compare resource to deployment
+    // compare resource to service
+    // if everything matches, set status to deployed
+    // if not, update deployment and service and requeue
 
-            // compare resource to deployment
-            // compare resource to service
-            // if everything matches, set status to deployed
-            // if not, update deployment and service and requeue
+    tracing::info!(%name, %resource_namespace, "Requeueing resource.");
+    Ok(Action::requeue(Duration::from_secs(10)))
+}
 
-            tracing::info!(%name, %resource_namespace, "Requeueing resource.");
-            Ok(Action::requeue(Duration::from_secs(10)))
-        }
-        ReconcileAction::Delete => {
-            tracing::info!(%name, %resource_namespace, "Deleting resource.");
+async fn cleanup(name: &str, resource_namespace: &str) -> Result<Action, DeleteError> {
+    tracing::info!(%name, %resource_namespace, "Deleting resource.");
 
-            tracing::info!(%name, %resource_namespace, "Requeueing resource.");
-            Ok(Action::requeue(Duration::from_secs(10)))
-        }
-    }
+    tracing::info!(%name, %resource_namespace, "Awaiting change.");
+    Ok(Action::await_change())
 }
 
 fn on_error(
@@ -250,18 +324,4 @@ fn on_error(
     _context: Arc<ContextData>,
 ) -> Action {
     Action::requeue(Duration::from_secs(10))
-}
-
-fn determine_reconcile_action(openfaas_function: &OpenFaaSFunction) -> ReconcileAction {
-    if openfaas_function.meta().deletion_timestamp.is_some() {
-        return ReconcileAction::Delete;
-    }
-
-    ReconcileAction::Apply
-}
-
-enum ReconcileAction {
-    Apply,
-    /// Since we are not setting a finalizer, we may not be notified of deletion.
-    Delete,
 }
