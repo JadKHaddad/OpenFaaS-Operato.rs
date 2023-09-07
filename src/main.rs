@@ -12,7 +12,7 @@ use kube::{
         watcher::Config,
     },
     runtime::{finalizer, Controller},
-    Api, Client as KubeClient, Error as KubeError, Resource, ResourceExt,
+    Api, Client as KubeClient, Error as KubeError, ResourceExt,
 };
 use openfaas_operato_rs::{
     consts::*,
@@ -21,6 +21,7 @@ use openfaas_operato_rs::{
 use std::sync::Arc;
 use thiserror::Error as ThisError;
 use tokio::time::Duration;
+use tracing::trace_span;
 use tracing_subscriber::EnvFilter;
 
 pub fn init_tracing() {
@@ -146,7 +147,10 @@ async fn main() {
         functions_namespace,
     });
 
-    tracing::info!("Starting controller.");
+    let controller_span = trace_span!("Controller");
+    let _controller_span_guard = controller_span.enter();
+
+    tracing::info!("Starting.");
 
     Controller::new(crd_api, Config::default())
         .owns(deployment_api, Config::default())
@@ -165,13 +169,16 @@ async fn main() {
         })
         .await;
 
-    tracing::info!("Controller terminated.");
+    tracing::info!("Terminated.");
 }
 
 async fn reconcile(
     openfaas_function_crd: Arc<OpenFaaSFunction>,
     context: Arc<ContextData>,
 ) -> Result<Action, ReconcileError> {
+    let reconcile_span = trace_span!("Reconcile");
+    let _reconcile_span_guard = reconcile_span.enter();
+
     let name = openfaas_function_crd.name_any();
 
     let resource_namespace: String = match openfaas_function_crd.namespace() {
@@ -183,7 +190,8 @@ async fn reconcile(
         Some(namespace) => namespace,
     };
 
-    tracing::info!(%name, %resource_namespace, "Reconciling resource.");
+    let reconcile_resource_span = trace_span!("ReconcileResource", %name, %resource_namespace);
+    let _reconcile_resource_span_guard = reconcile_resource_span.enter();
 
     let api: Api<OpenFaaSFunction> =
         Api::namespaced(context.kubernetes_client.clone(), &resource_namespace);
@@ -198,26 +206,35 @@ async fn reconcile(
                 let api: Api<OpenFaaSFunction> =
                     Api::namespaced(context.kubernetes_client.clone(), &resource_namespace);
 
-                // TODO: create spans for each event Apply and Cleanup
                 match event {
-                    Event::Apply(openfaas_function_crd) => apply(
-                        api,
-                        context,
-                        openfaas_function_crd,
-                        &name,
-                        &resource_namespace,
-                    )
-                    .await
-                    .map_err(FinalizeError::Apply),
-                    Event::Cleanup(openfaas_function_crd) => cleanup(
-                        api,
-                        context,
-                        openfaas_function_crd,
-                        &name,
-                        &resource_namespace,
-                    )
-                    .await
-                    .map_err(FinalizeError::Cleanup),
+                    Event::Apply(openfaas_function_crd) => {
+                        let apply_resource_span = trace_span!("ApplyResource");
+                        let _apply_resource_span_guard = apply_resource_span.enter();
+
+                        apply(
+                            api,
+                            context,
+                            openfaas_function_crd,
+                            &name,
+                            &resource_namespace,
+                        )
+                        .await
+                        .map_err(FinalizeError::Apply)
+                    }
+                    Event::Cleanup(openfaas_function_crd) => {
+                        let cleanup_resource_span = trace_span!("CleanupResource");
+                        let _cleanup_resource_span_guard = cleanup_resource_span.enter();
+
+                        cleanup(
+                            api,
+                            context,
+                            openfaas_function_crd,
+                            &name,
+                            &resource_namespace,
+                        )
+                        .await
+                        .map_err(FinalizeError::Cleanup)
+                    }
                 }
             },
         )
@@ -234,76 +251,84 @@ async fn apply(
     name: &str,
     resource_namespace: &str,
 ) -> Result<Action, ApplyError> {
-    tracing::info!(%name, %resource_namespace, "Applying resource.");
-
+    tracing::info!("Applying resource.");
     let functions_namespace = &context.functions_namespace;
 
-    tracing::info!(%name, %resource_namespace, %functions_namespace, "Comparing resource's namespace to functions namespace.");
-    if resource_namespace != functions_namespace {
-        tracing::error!(%name, %resource_namespace, %functions_namespace, "Resource's namespace does not match functions namespace.");
+    {
+        let check_res_namespace_span = trace_span!("CheckResourceNamespace", %functions_namespace);
+        let _check_res_namespace_span_guard = check_res_namespace_span.enter();
 
-        let mut openfaas_function_crd_inner = api.get_status(name).await?;
-        match openfaas_function_crd_inner.status {
-            Some(OpenFaasFunctionStatus::InvalidCRDNamespace) => {
-                tracing::info!(%name, %resource_namespace, "Resource already has invalid crd namespace status. Skipping.");
-            }
-            _ => {
-                tracing::info!(%name, %resource_namespace, "Setting status to invalid crd namespace.");
+        tracing::info!("Comparing resource's namespace to functions namespace.");
+        if resource_namespace != functions_namespace {
+            tracing::error!("Resource's namespace does not match functions namespace.");
 
-                openfaas_function_crd_inner.status =
-                    Some(OpenFaasFunctionStatus::InvalidCRDNamespace);
-                api.replace_status(
-                    name,
-                    &PostParams::default(),
-                    serde_json::to_vec(&openfaas_function_crd_inner)?,
-                )
-                .await?;
-
-                tracing::info!(%name, %resource_namespace, "Status set to invalid crd namespace.");
-            }
-        }
-
-        tracing::info!(%name, %resource_namespace, "Requeueing resource.");
-
-        return Ok(Action::requeue(Duration::from_secs(10)));
-    }
-
-    match openfaas_function_crd.spec.namespace {
-        None => {
-            tracing::info!(%name, %resource_namespace, default = %functions_namespace, "Function has no namespace. Assuming default.");
-        }
-
-        Some(ref function_namespace) => {
-            tracing::info!(%name, %resource_namespace, %function_namespace, "Function has namespace.");
-            tracing::info!(%name, %resource_namespace, %function_namespace, %functions_namespace, "Comparing function's namespace to functions namespace.");
-
-            if function_namespace != functions_namespace {
-                tracing::error!(%name, %resource_namespace, %function_namespace, %functions_namespace, "Function's namespace does not match functions namespace.");
-
-                let mut openfaas_function_crd_inner = api.get_status(name).await?;
-                match openfaas_function_crd_inner.status {
-                    Some(OpenFaasFunctionStatus::InvalidFunctionNamespace) => {
-                        tracing::info!(%name, %resource_namespace, %function_namespace, %functions_namespace, "Resource already has invalid function namespace status. Skipping.");
-                    }
-                    _ => {
-                        tracing::info!(%name, %resource_namespace, %function_namespace, %functions_namespace, "Setting status to invalid function namespace.");
-
-                        openfaas_function_crd_inner.status =
-                            Some(OpenFaasFunctionStatus::InvalidFunctionNamespace);
-                        api.replace_status(
-                            name,
-                            &PostParams::default(),
-                            serde_json::to_vec(&openfaas_function_crd_inner)?,
-                        )
-                        .await?;
-
-                        tracing::info!(%name, %resource_namespace, %function_namespace, %functions_namespace, "Status set to invalid function namespace.");
-                    }
+            let mut openfaas_function_crd_inner = api.get_status(name).await?;
+            match openfaas_function_crd_inner.status {
+                Some(OpenFaasFunctionStatus::InvalidCRDNamespace) => {
+                    tracing::info!("Resource already has invalid crd namespace status. Skipping.");
                 }
+                _ => {
+                    tracing::info!("Setting status to invalid crd namespace.");
 
-                tracing::info!(%name, %resource_namespace, "Requeueing resource.");
+                    openfaas_function_crd_inner.status =
+                        Some(OpenFaasFunctionStatus::InvalidCRDNamespace);
+                    api.replace_status(
+                        name,
+                        &PostParams::default(),
+                        serde_json::to_vec(&openfaas_function_crd_inner)?,
+                    )
+                    .await?;
 
-                return Ok(Action::requeue(Duration::from_secs(10)));
+                    tracing::info!("Status set to invalid crd namespace.");
+                }
+            }
+
+            tracing::info!("Requeueing resource.");
+
+            return Ok(Action::requeue(Duration::from_secs(10)));
+        }
+    }
+    {
+        let check_fun_namespace_span = trace_span!("CheckFunctionNamespace", %functions_namespace);
+        let _check_fun_namespace_span_guard = check_fun_namespace_span.enter();
+
+        match openfaas_function_crd.spec.namespace {
+            None => {
+                tracing::info!(default = %functions_namespace, "Function has no namespace. Assuming default.");
+            }
+
+            Some(ref function_namespace) => {
+                tracing::info!(%function_namespace, "Function has namespace.");
+                tracing::info!(%function_namespace, "Comparing function's namespace to functions namespace.");
+
+                if function_namespace != functions_namespace {
+                    tracing::error!(%function_namespace, "Function's namespace does not match functions namespace.");
+
+                    let mut openfaas_function_crd_inner = api.get_status(name).await?;
+                    match openfaas_function_crd_inner.status {
+                        Some(OpenFaasFunctionStatus::InvalidFunctionNamespace) => {
+                            tracing::info!(%function_namespace, "Resource already has invalid function namespace status. Skipping.");
+                        }
+                        _ => {
+                            tracing::info!(%function_namespace, "Setting status to invalid function namespace.");
+
+                            openfaas_function_crd_inner.status =
+                                Some(OpenFaasFunctionStatus::InvalidFunctionNamespace);
+                            api.replace_status(
+                                name,
+                                &PostParams::default(),
+                                serde_json::to_vec(&openfaas_function_crd_inner)?,
+                            )
+                            .await?;
+
+                            tracing::info!(%function_namespace, "Status set to invalid function namespace.");
+                        }
+                    }
+
+                    tracing::info!("Requeueing resource.");
+
+                    return Ok(Action::requeue(Duration::from_secs(10)));
+                }
             }
         }
     }
@@ -313,7 +338,7 @@ async fn apply(
     // if everything matches, set status to deployed
     // if not, update deployment and service and requeue
 
-    tracing::info!(%name, %resource_namespace, "Requeueing resource.");
+    tracing::info!("Requeueing resource.");
     Ok(Action::requeue(Duration::from_secs(10)))
 }
 
@@ -321,12 +346,12 @@ async fn cleanup(
     _api: Api<OpenFaaSFunction>,
     _context: Arc<ContextData>,
     _openfaas_function_crd: Arc<OpenFaaSFunction>,
-    name: &str,
-    resource_namespace: &str,
+    _name: &str,
+    _resource_namespace: &str,
 ) -> Result<Action, CleanupError> {
-    tracing::info!(%name, %resource_namespace, "Deleting resource.");
+    tracing::info!("Cleaning up resource.");
 
-    tracing::info!(%name, %resource_namespace, "Awaiting change.");
+    tracing::info!("Awaiting change.");
     Ok(Action::await_change())
 }
 
