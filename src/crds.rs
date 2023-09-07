@@ -93,29 +93,43 @@ impl OpenFaaSFunction {
 }
 
 pub enum DeploymentDiff {
-    /// If ```OpenFaasFunctionSpec::service``` is not contained in the deployment containers
-    ContainerDoesNotExist,
-    /// If ```OpenFaasFunctionSpec::service``` is contained in the deployment containers,
-    /// but image is different
+    /// ```Container``` is missing. Name: ```OpenFaasFunctionSpec::service```
+    Container,
+    /// If ```Container``` is not missing in the deployment containers, but ```Image``` is different
     Image,
-    /// EnvProcess is different
+    /// ```EnvProcess``` is missing or different
     EnvProcess,
-    /// EnvVars are not contained
-    EnvVars,
-    /// Constraints are not contained
-    Constraints,
-    /// Secrets are not contained
-    Secrets,
-    /// Labels are not contained
-    Labels,
-    /// Annotations are not contained
-    Annotations,
-    /// Limits are different, or not defined
-    Limits,
-    /// Requests are different, or not defined
-    Requests,
-    /// ReadOnlyRootFilesystem is different, or not defined
+    /// ```EnvVars``` are missing
+    NoEnvVars,
+    /// An ```EnvVar``` is missing or different
+    EnvVar(String),
+    /// ```Constraints``` are missing
+    NoConstraints,
+    /// A ```Constraint``` is missing
+    Constraints(String),
+    /// ```Secrets``` are missing
+    NoSecrets,
+    /// A ```Secret``` is missing or different
+    Secrets(String),
+    /// ```Labels``` are missing
+    NoLabels,
+    /// A ```Label``` is missing or different
+    Labels(String),
+    /// ```Annotations``` are missing
+    NoAnnotations,
+    /// An ```Annotation``` is missing or different
+    Annotation(String),
+    /// ```Limits``` are missing or different
+    Limits(ResourceDiff),
+    /// ```Requests``` are missing or different
+    Requests(ResourceDiff),
+    /// ```ReadOnlyRootFilesystem``` is missing or different
     ReadOnlyRootFilesystem,
+}
+
+pub enum ResourceDiff {
+    Memory,
+    CPU,
 }
 
 pub enum ServiceDiff {}
@@ -130,14 +144,14 @@ impl OpenFaasFunctionSpec {
     }
 }
 
-/// Generate a fresh deployment
+/// Generate a fresh deployment with refs
 impl From<&OpenFaasFunctionSpec> for Deployment {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
         unimplemented!()
     }
 }
 
-/// Generate a fresh service
+/// Generate a fresh service with refs
 impl From<&OpenFaasFunctionSpec> for Service {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
         unimplemented!()
