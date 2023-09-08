@@ -348,7 +348,7 @@ async fn apply(
     let check_deployment_span = trace_span!("CheckDeployment");
     if let Some(action) = check_deployment(
         &context,
-        openfaas_function_crd.clone(),
+        &openfaas_function_crd,
         name,
         functions_namespace,
         check_deployment_span.clone(),
@@ -363,6 +363,7 @@ async fn apply(
     let check_service_span = trace_span!("CheckService");
     if let Some(action) = check_service(
         &context,
+        &openfaas_function_crd,
         name,
         functions_namespace,
         check_service_span.clone(),
@@ -508,7 +509,7 @@ async fn check_function_namespace(
 
 async fn check_deployment(
     context: &ContextData,
-    openfaas_function_crd: Arc<OpenFaaSFunction>,
+    openfaas_function_crd: &OpenFaaSFunction,
     name: &str,
     functions_namespace: &str,
     span: Span,
@@ -533,7 +534,7 @@ async fn check_deployment(
             tracing::info!("Deployment does not exist. Creating.");
 
             let deployment =
-                Deployment::try_from(&*openfaas_function_crd).map_err(DeploymentError::Generate)?;
+                Deployment::try_from(openfaas_function_crd).map_err(DeploymentError::Generate)?;
             deployment_api
                 .create(&PostParams::default(), &deployment)
                 .instrument(span)
@@ -549,6 +550,7 @@ async fn check_deployment(
 
 async fn check_service(
     context: &ContextData,
+    openfaas_function_crd: &OpenFaaSFunction,
     name: &str,
     functions_namespace: &str,
     span: Span,
@@ -560,16 +562,27 @@ async fn check_service(
 
     let service_opt = service_api
         .get_opt(name)
-        .instrument(span)
+        .instrument(span.clone())
         .await
         .map_err(ServiceError::Get)?;
 
     match service_opt {
         Some(service) => {
             tracing::info!("Service exists. Comparing.");
+            // TODO
         }
         None => {
             tracing::info!("Service does not exist. Creating.");
+            let service =
+                Service::try_from(openfaas_function_crd).map_err(ServiceError::Generate)?;
+
+            service_api
+                .create(&PostParams::default(), &service)
+                .instrument(span)
+                .await
+                .map_err(ServiceError::Apply)?;
+
+            tracing::info!("Service created.");
         }
     }
 

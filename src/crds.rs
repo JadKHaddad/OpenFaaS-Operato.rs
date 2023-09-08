@@ -10,6 +10,8 @@ use k8s_openapi::api::core::v1::Probe;
 use k8s_openapi::api::core::v1::ResourceRequirements;
 use k8s_openapi::api::core::v1::SecurityContext;
 use k8s_openapi::api::core::v1::Service;
+use k8s_openapi::api::core::v1::ServicePort;
+use k8s_openapi::api::core::v1::ServiceSpec;
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
@@ -176,6 +178,10 @@ impl OpenFaasFunctionSpec {
         }
     }
 
+    fn to_service_selector_labels(&self) -> BTreeMap<String, String> {
+        self.to_meta_labels()
+    }
+
     fn to_annotations(&self) -> Option<BTreeMap<String, String>> {
         if let Some(annotations) = self.annotations.clone() {
             let annotations: BTreeMap<String, String> = annotations.into_iter().collect();
@@ -193,6 +199,10 @@ impl OpenFaasFunctionSpec {
             annotations: self.to_annotations(),
             ..Default::default()
         }
+    }
+
+    fn to_service_meta(&self) -> ObjectMeta {
+        self.to_deployment_meta()
     }
 
     fn to_spec_template_meta(&self) -> ObjectMeta {
@@ -411,10 +421,54 @@ impl From<&OpenFaasFunctionSpec> for Deployment {
     }
 }
 
+impl From<&OpenFaasFunctionSpec> for ServicePort {
+    fn from(_value: &OpenFaasFunctionSpec) -> Self {
+        ServicePort {
+            name: Some(String::from("http")),
+            port: 8080,
+            target_port: Some(IntOrString::Int(8080)),
+            protocol: Some(String::from("TCP")),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Vec<ServicePort> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        vec![ServicePort::from(value)]
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Option<Vec<ServicePort>> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        Some(Vec::<ServicePort>::from(value))
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for ServiceSpec {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        ServiceSpec {
+            selector: Some(value.to_service_selector_labels()),
+            ports: Option::<Vec<ServicePort>>::from(value),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Option<ServiceSpec> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        Some(ServiceSpec::from(value))
+    }
+}
+
 /// Generate a fresh service
 impl From<&OpenFaasFunctionSpec> for Service {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
-        unimplemented!()
+        Service {
+            metadata: value.to_service_meta(),
+            spec: Option::<ServiceSpec>::from(value),
+            ..Default::default()
+        }
     }
 }
 
