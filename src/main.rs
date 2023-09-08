@@ -333,10 +333,31 @@ async fn apply(
         }
     }
 
-    // compare resource to deployment
-    // compare resource to service
-    // if everything matches, set status to deployed
-    // if not, update deployment and service and requeue
+    {
+        // check if deployment exists
+        {
+            // yes
+            // compare
+        }
+        {
+            // no
+            // create
+        }
+    }
+    {
+        // check if service exists
+        {
+            // yes
+            // compare
+        }
+        {
+            // no
+            // create
+        }
+    }
+
+    // after deploying the deployment and service, set status to deployes
+    // if deployment and service are ready, set status to ready
 
     tracing::info!("Requeueing resource.");
     Ok(Action::requeue(Duration::from_secs(10)))

@@ -1,9 +1,21 @@
 use k8s_openapi::api::apps::v1::Deployment;
+use k8s_openapi::api::apps::v1::DeploymentSpec;
+use k8s_openapi::api::core::v1::Container;
+use k8s_openapi::api::core::v1::ContainerPort;
+use k8s_openapi::api::core::v1::HTTPGetAction;
+use k8s_openapi::api::core::v1::PodSpec;
+use k8s_openapi::api::core::v1::PodTemplateSpec;
+use k8s_openapi::api::core::v1::Probe;
+use k8s_openapi::api::core::v1::SecurityContext;
 use k8s_openapi::api::core::v1::Service;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
+use kube::core::ObjectMeta;
 use kube::CustomResource;
 use kube::CustomResourceExt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 pub const FINALIZER_NAME: &str = "openfaasfunctions.operato.rs/finalizer";
@@ -72,6 +84,7 @@ pub struct FunctionResources {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
 pub enum OpenFaasFunctionStatus {
+    Ready,
     Deployed,
     InvalidCRDNamespace,
     InvalidFunctionNamespace,
@@ -147,7 +160,98 @@ impl OpenFaasFunctionSpec {
 /// Generate a fresh deployment with refs
 impl From<&OpenFaasFunctionSpec> for Deployment {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
-        unimplemented!()
+        // If Secrets are set, check if they exist
+
+        let mut dep_meta_labels = BTreeMap::new();
+        dep_meta_labels.insert(String::from("faas_function"), value.service.clone());
+
+        let annotations = if let Some(annotations) = value.annotations.clone() {
+            let annotations: BTreeMap<String, String> = annotations.into_iter().collect();
+            Some(annotations)
+        } else {
+            None
+        };
+
+        let dep_metadata = ObjectMeta {
+            name: Some(value.service.clone()),
+            namespace: value.namespace.clone(),
+            labels: Some(dep_meta_labels.clone()),
+            annotations: annotations.clone(),
+            ..Default::default()
+        };
+
+        let mut spec_template_metadata_labels = dep_meta_labels.clone();
+        if let Some(lables) = value.labels.clone() {
+            let lables: BTreeMap<String, String> = lables.into_iter().collect();
+            spec_template_metadata_labels.extend(lables);
+        }
+
+        let spec_template_metadata = ObjectMeta {
+            name: Some(value.service.clone()),
+            labels: Some(spec_template_metadata_labels),
+            annotations,
+            ..Default::default()
+        };
+
+        let ports = vec![ContainerPort {
+            name: Some(String::from("http")),
+            container_port: 8080,
+            protocol: Some(String::from("TCP")),
+            ..Default::default()
+        }];
+
+        let readiness_and_liveness_probe = Probe {
+            http_get: Some(HTTPGetAction {
+                path: Some(String::from("/_/health")),
+                port: IntOrString::Int(8080),
+                scheme: Some(String::from("HTTP")),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let security_context = SecurityContext {
+            read_only_root_filesystem: value.read_only_root_filesystem,
+            ..Default::default()
+        };
+
+        let containers = vec![Container {
+            name: value.service.clone(),
+            image: Some(value.image.clone()),
+            ports: Some(ports),
+            liveness_probe: Some(readiness_and_liveness_probe.clone()),
+            readiness_probe: Some(readiness_and_liveness_probe),
+            security_context: Some(security_context),
+            volume_mounts: None, // TODO
+            resources: None,     // TODO
+            env: None,           // TODO
+            ..Default::default()
+        }];
+
+        let spec_template_spec = PodSpec {
+            containers,
+            volumes: None, // TODO
+            ..Default::default()
+        };
+
+        let spec = DeploymentSpec {
+            replicas: Some(1),
+            selector: LabelSelector {
+                match_labels: Some(dep_meta_labels),
+                ..Default::default()
+            },
+            template: PodTemplateSpec {
+                metadata: Some(spec_template_metadata),
+                spec: Some(spec_template_spec),
+            },
+            ..Default::default()
+        };
+
+        Deployment {
+            metadata: dep_metadata,
+            spec: Some(spec),
+            ..Default::default()
+        }
     }
 }
 
