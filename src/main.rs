@@ -75,24 +75,24 @@ enum ApplyError {
 enum CheckResourceNamespaceError {
     #[error("Kubernetes error: {0}")]
     Kube(#[source] KubeError),
-    #[error("Failed to set satus to {status:?}: {error}")]
-    Status {
-        #[source]
-        error: SetStatusError,
-        status: OpenFaasFunctionStatus,
-    },
+    #[error(transparent)]
+    Status(StatusError),
 }
 
 #[derive(ThisError, Debug)]
 enum CheckFunctionNamespaceError {
     #[error("Kubernetes error: {0}")]
     Kube(#[source] KubeError),
-    #[error("Failed to set satus to {status:?}: {error}")]
-    Status {
-        #[source]
-        error: SetStatusError,
-        status: OpenFaasFunctionStatus,
-    },
+    #[error(transparent)]
+    Status(StatusError),
+}
+
+#[derive(ThisError, Debug)]
+#[error("Failed to set satus to {status:?}: {error}")]
+struct StatusError {
+    #[source]
+    error: SetStatusError,
+    status: OpenFaasFunctionStatus,
 }
 
 #[derive(ThisError, Debug)]
@@ -413,17 +413,19 @@ async fn check_resource_namespace(
                     name,
                     &PostParams::default(),
                     serde_json::to_vec(&openfaas_function_crd_inner).map_err(|error| {
-                        CheckResourceNamespaceError::Status {
+                        CheckResourceNamespaceError::Status(StatusError {
                             error: SetStatusError::Serilization(error),
                             status: OpenFaasFunctionStatus::InvalidCRDNamespace,
-                        }
+                        })
                     })?,
                 )
                 .instrument(span)
                 .await
-                .map_err(|error| CheckResourceNamespaceError::Status {
-                    error: SetStatusError::Kube(error),
-                    status: OpenFaasFunctionStatus::InvalidCRDNamespace,
+                .map_err(|error| {
+                    CheckResourceNamespaceError::Status(StatusError {
+                        error: SetStatusError::Kube(error),
+                        status: OpenFaasFunctionStatus::InvalidCRDNamespace,
+                    })
                 })?;
 
                 tracing::info!("Status set to invalid crd namespace.");
@@ -478,19 +480,19 @@ async fn check_function_namespace(
                             name,
                             &PostParams::default(),
                             serde_json::to_vec(&openfaas_function_crd_inner).map_err(|error| {
-                                CheckFunctionNamespaceError::Status {
+                                CheckFunctionNamespaceError::Status(StatusError {
                                     error: SetStatusError::Serilization(error),
                                     status: OpenFaasFunctionStatus::InvalidFunctionNamespace,
-                                }
+                                })
                             })?,
                         )
                         .instrument(span)
                         .await
                         .map_err(|error| {
-                            CheckFunctionNamespaceError::Status {
+                            CheckFunctionNamespaceError::Status(StatusError {
                                 error: SetStatusError::Kube(error),
                                 status: OpenFaasFunctionStatus::InvalidFunctionNamespace,
-                            }
+                            })
                         })?;
 
                         tracing::info!(%function_namespace, "Status set to invalid function namespace.");
