@@ -13,4 +13,13 @@ spec:
   annotations:
     annotation: "value"
     annotation2: "value2"
+  envVars:
+    envVar: "value"
+    envVar2: "value2"
+  limits:
+    cpu: "1"
+    memory: "256Mi"
+  requests:
+    cpu: "1"
+    memory: "256Mi"
   readOnlyRootFilesystem: false

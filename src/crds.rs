@@ -2,12 +2,15 @@ use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::apps::v1::DeploymentSpec;
 use k8s_openapi::api::core::v1::Container;
 use k8s_openapi::api::core::v1::ContainerPort;
+use k8s_openapi::api::core::v1::EnvVar;
 use k8s_openapi::api::core::v1::HTTPGetAction;
 use k8s_openapi::api::core::v1::PodSpec;
 use k8s_openapi::api::core::v1::PodTemplateSpec;
 use k8s_openapi::api::core::v1::Probe;
+use k8s_openapi::api::core::v1::ResourceRequirements;
 use k8s_openapi::api::core::v1::SecurityContext;
 use k8s_openapi::api::core::v1::Service;
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::LabelSelector;
 use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::core::ObjectMeta;
@@ -201,12 +204,31 @@ impl OpenFaasFunctionSpec {
         }
     }
 
-    fn to_container_ports(&self) -> Vec<ContainerPort> {
-        vec![ContainerPort::from(self)]
+    fn to_limits(&self) -> Option<BTreeMap<String, Quantity>> {
+        self.limits.clone().map(|r| {
+            let mut limits = BTreeMap::new();
+
+            if let Some(cpu) = r.cpu {
+                limits.insert(String::from("cpu"), Quantity(cpu));
+            }
+            if let Some(memory) = r.memory {
+                limits.insert(String::from("memory"), Quantity(memory));
+            }
+            limits
+        })
     }
 
-    fn to_containers(&self) -> Vec<Container> {
-        vec![Container::from(self)]
+    fn to_requests(&self) -> Option<BTreeMap<String, Quantity>> {
+        self.requests.clone().map(|r| {
+            let mut requests = BTreeMap::new();
+            if let Some(cpu) = r.cpu {
+                requests.insert(String::from("cpu"), Quantity(cpu));
+            }
+            if let Some(memory) = r.memory {
+                requests.insert(String::from("memory"), Quantity(memory));
+            }
+            requests
+        })
     }
 }
 
@@ -224,6 +246,12 @@ impl From<&OpenFaasFunctionSpec> for Probe {
     }
 }
 
+impl From<&OpenFaasFunctionSpec> for Option<Probe> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        Some(Probe::from(value))
+    }
+}
+
 impl From<&OpenFaasFunctionSpec> for ContainerPort {
     fn from(_value: &OpenFaasFunctionSpec) -> Self {
         ContainerPort {
@@ -232,6 +260,18 @@ impl From<&OpenFaasFunctionSpec> for ContainerPort {
             protocol: Some(String::from("TCP")),
             ..Default::default()
         }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Vec<ContainerPort> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        vec![ContainerPort::from(value)]
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Option<Vec<ContainerPort>> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        Some(Vec::<ContainerPort>::from(value))
     }
 }
 
@@ -244,30 +284,82 @@ impl From<&OpenFaasFunctionSpec> for SecurityContext {
     }
 }
 
+impl From<&OpenFaasFunctionSpec> for Option<SecurityContext> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        Some(SecurityContext::from(value))
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Option<Vec<EnvVar>> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        if let Some(env_vars) = value.env_vars.clone() {
+            let env_vars: Vec<EnvVar> = env_vars
+                .into_iter()
+                .map(|(k, v)| EnvVar {
+                    name: k,
+                    value: Some(v),
+                    ..Default::default()
+                })
+                .collect();
+
+            Some(env_vars)
+        } else {
+            None
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for ResourceRequirements {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        ResourceRequirements {
+            limits: value.to_limits(),
+            requests: value.to_requests(),
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Option<ResourceRequirements> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        Some(ResourceRequirements::from(value))
+    }
+}
+
 impl From<&OpenFaasFunctionSpec> for Container {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
         Container {
             name: value.to_name(),
             image: Some(value.to_image()),
-            ports: Some(value.to_container_ports()),
-            liveness_probe: Some(Probe::from(value)),
-            readiness_probe: Some(Probe::from(value)),
-            security_context: Some(SecurityContext::from(value)),
+            ports: Option::<Vec<ContainerPort>>::from(value),
+            liveness_probe: Option::<Probe>::from(value),
+            readiness_probe: Option::<Probe>::from(value),
+            security_context: Option::<SecurityContext>::from(value),
             volume_mounts: None, // TODO
-            resources: None,     // TODO
-            env: None,           // TODO
+            resources: Option::<ResourceRequirements>::from(value),
+            env: Option::<Vec<EnvVar>>::from(value),
             ..Default::default()
         }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Vec<Container> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        vec![Container::from(value)]
     }
 }
 
 impl From<&OpenFaasFunctionSpec> for PodSpec {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
         PodSpec {
-            containers: value.to_containers(),
+            containers: Vec::<Container>::from(value),
             volumes: None, // TODO
             ..Default::default()
         }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Option<PodSpec> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        Some(PodSpec::from(value))
     }
 }
 
@@ -284,7 +376,7 @@ impl From<&OpenFaasFunctionSpec> for PodTemplateSpec {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
         PodTemplateSpec {
             metadata: Some(value.to_spec_template_meta()),
-            spec: Some(PodSpec::from(value)),
+            spec: Option::<PodSpec>::from(value),
         }
     }
 }
@@ -300,6 +392,12 @@ impl From<&OpenFaasFunctionSpec> for DeploymentSpec {
     }
 }
 
+impl From<&OpenFaasFunctionSpec> for Option<DeploymentSpec> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        Some(DeploymentSpec::from(value))
+    }
+}
+
 /// Generate a fresh deployment
 impl From<&OpenFaasFunctionSpec> for Deployment {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
@@ -307,7 +405,7 @@ impl From<&OpenFaasFunctionSpec> for Deployment {
 
         Deployment {
             metadata: value.to_deployment_meta(),
-            spec: Some(DeploymentSpec::from(value)),
+            spec: Option::<DeploymentSpec>::from(value),
             ..Default::default()
         }
     }
