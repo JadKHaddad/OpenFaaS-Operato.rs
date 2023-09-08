@@ -92,21 +92,6 @@ pub enum OpenFaasFunctionStatus {
     InvalidFunctionNamespace,
 }
 
-impl OpenFaaSFunction {
-    pub fn generate_crds() -> String {
-        serde_yaml::to_string(&OpenFaaSFunction::crd()).expect("Failed to generate crds")
-    }
-
-    pub fn print_crds() {
-        println!("{:#?}", OpenFaaSFunction::generate_crds());
-    }
-
-    pub fn write_crds_to_file(path: &str) {
-        let crds = OpenFaaSFunction::generate_crds();
-        std::fs::write(path, crds).expect("Failed to write crds to file");
-    }
-}
-
 pub enum DeploymentDiff {
     /// ```Container``` is missing. Name: ```OpenFaasFunctionSpec::service```
     Container,
@@ -157,6 +142,197 @@ impl OpenFaasFunctionSpec {
     pub fn service_diffs(&self, service: &Service) -> Vec<ServiceDiff> {
         unimplemented!()
     }
+
+    fn to_name(&self) -> String {
+        self.service.clone()
+    }
+
+    fn to_namespace(&self) -> Option<String> {
+        self.namespace.clone()
+    }
+
+    fn to_image(&self) -> String {
+        self.image.clone()
+    }
+
+    fn to_meta_labels(&self) -> BTreeMap<String, String> {
+        let mut labels = BTreeMap::new();
+        labels.insert(String::from("faas_function"), self.service.clone());
+        labels
+    }
+
+    fn to_spec_meta_labels(&self) -> BTreeMap<String, String> {
+        let meta_labels = self.to_meta_labels();
+        if let Some(lables) = self.labels.clone() {
+            let mut labels: BTreeMap<String, String> = lables.into_iter().collect();
+            labels.extend(meta_labels);
+
+            labels
+        } else {
+            meta_labels
+        }
+    }
+
+    fn to_annotations(&self) -> Option<BTreeMap<String, String>> {
+        if let Some(annotations) = self.annotations.clone() {
+            let annotations: BTreeMap<String, String> = annotations.into_iter().collect();
+            Some(annotations)
+        } else {
+            None
+        }
+    }
+
+    fn to_deployment_meta(&self) -> ObjectMeta {
+        ObjectMeta {
+            name: Some(self.to_name()),
+            namespace: self.to_namespace(),
+            labels: Some(self.to_meta_labels()),
+            annotations: self.to_annotations(),
+            ..Default::default()
+        }
+    }
+
+    fn to_spec_template_meta(&self) -> ObjectMeta {
+        ObjectMeta {
+            name: Some(self.to_name()),
+            labels: Some(self.to_spec_meta_labels()),
+            annotations: self.to_annotations(),
+            ..Default::default()
+        }
+    }
+
+    fn to_container_ports(&self) -> Vec<ContainerPort> {
+        vec![ContainerPort::from(self)]
+    }
+
+    fn to_containers(&self) -> Vec<Container> {
+        vec![Container::from(self)]
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Probe {
+    fn from(_value: &OpenFaasFunctionSpec) -> Self {
+        Probe {
+            http_get: Some(HTTPGetAction {
+                path: Some(String::from("/_/health")),
+                port: IntOrString::Int(8080),
+                scheme: Some(String::from("HTTP")),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for ContainerPort {
+    fn from(_value: &OpenFaasFunctionSpec) -> Self {
+        ContainerPort {
+            name: Some(String::from("http")),
+            container_port: 8080,
+            protocol: Some(String::from("TCP")),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for SecurityContext {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        SecurityContext {
+            read_only_root_filesystem: value.read_only_root_filesystem,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Container {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        Container {
+            name: value.to_name(),
+            image: Some(value.to_image()),
+            ports: Some(value.to_container_ports()),
+            liveness_probe: Some(Probe::from(value)),
+            readiness_probe: Some(Probe::from(value)),
+            security_context: Some(SecurityContext::from(value)),
+            volume_mounts: None, // TODO
+            resources: None,     // TODO
+            env: None,           // TODO
+            ..Default::default()
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for PodSpec {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        PodSpec {
+            containers: value.to_containers(),
+            volumes: None, // TODO
+            ..Default::default()
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for LabelSelector {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        LabelSelector {
+            match_labels: Some(value.to_meta_labels()),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for PodTemplateSpec {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        PodTemplateSpec {
+            metadata: Some(value.to_spec_template_meta()),
+            spec: Some(PodSpec::from(value)),
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for DeploymentSpec {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        DeploymentSpec {
+            replicas: Some(1),
+            selector: LabelSelector::from(value),
+            template: PodTemplateSpec::from(value),
+            ..Default::default()
+        }
+    }
+}
+
+/// Generate a fresh deployment
+impl From<&OpenFaasFunctionSpec> for Deployment {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        // If Secrets are set, check if they exist
+
+        Deployment {
+            metadata: value.to_deployment_meta(),
+            spec: Some(DeploymentSpec::from(value)),
+            ..Default::default()
+        }
+    }
+}
+
+/// Generate a fresh service
+impl From<&OpenFaasFunctionSpec> for Service {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        unimplemented!()
+    }
+}
+
+impl OpenFaaSFunction {
+    pub fn generate_crds() -> String {
+        serde_yaml::to_string(&OpenFaaSFunction::crd()).expect("Failed to generate crds")
+    }
+
+    pub fn print_crds() {
+        println!("{:#?}", OpenFaaSFunction::generate_crds());
+    }
+
+    pub fn write_crds_to_file(path: &str) {
+        let crds = OpenFaaSFunction::generate_crds();
+        std::fs::write(path, crds).expect("Failed to write crds to file");
+    }
 }
 
 #[derive(ThisError, Debug)]
@@ -202,110 +378,5 @@ impl TryFrom<&OpenFaaSFunction> for Service {
         svc.metadata.owner_references = Some(vec![oref]);
 
         Ok(svc)
-    }
-}
-
-/// Generate a fresh deployment
-impl From<&OpenFaasFunctionSpec> for Deployment {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        // If Secrets are set, check if they exist
-
-        let mut dep_meta_labels = BTreeMap::new();
-        dep_meta_labels.insert(String::from("faas_function"), value.service.clone());
-
-        let annotations = if let Some(annotations) = value.annotations.clone() {
-            let annotations: BTreeMap<String, String> = annotations.into_iter().collect();
-            Some(annotations)
-        } else {
-            None
-        };
-
-        let dep_metadata = ObjectMeta {
-            name: Some(value.service.clone()),
-            namespace: value.namespace.clone(),
-            labels: Some(dep_meta_labels.clone()),
-            annotations: annotations.clone(),
-            ..Default::default()
-        };
-
-        let mut spec_template_metadata_labels = dep_meta_labels.clone();
-        if let Some(lables) = value.labels.clone() {
-            let lables: BTreeMap<String, String> = lables.into_iter().collect();
-            spec_template_metadata_labels.extend(lables);
-        }
-
-        let spec_template_metadata = ObjectMeta {
-            name: Some(value.service.clone()),
-            labels: Some(spec_template_metadata_labels),
-            annotations,
-            ..Default::default()
-        };
-
-        let ports = vec![ContainerPort {
-            name: Some(String::from("http")),
-            container_port: 8080,
-            protocol: Some(String::from("TCP")),
-            ..Default::default()
-        }];
-
-        let readiness_and_liveness_probe = Probe {
-            http_get: Some(HTTPGetAction {
-                path: Some(String::from("/_/health")),
-                port: IntOrString::Int(8080),
-                scheme: Some(String::from("HTTP")),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-
-        let security_context = SecurityContext {
-            read_only_root_filesystem: value.read_only_root_filesystem,
-            ..Default::default()
-        };
-
-        let containers = vec![Container {
-            name: value.service.clone(),
-            image: Some(value.image.clone()),
-            ports: Some(ports),
-            liveness_probe: Some(readiness_and_liveness_probe.clone()),
-            readiness_probe: Some(readiness_and_liveness_probe),
-            security_context: Some(security_context),
-            volume_mounts: None, // TODO
-            resources: None,     // TODO
-            env: None,           // TODO
-            ..Default::default()
-        }];
-
-        let spec_template_spec = PodSpec {
-            containers,
-            volumes: None, // TODO
-            ..Default::default()
-        };
-
-        let spec = DeploymentSpec {
-            replicas: Some(1),
-            selector: LabelSelector {
-                match_labels: Some(dep_meta_labels),
-                ..Default::default()
-            },
-            template: PodTemplateSpec {
-                metadata: Some(spec_template_metadata),
-                spec: Some(spec_template_spec),
-            },
-            ..Default::default()
-        };
-
-        Deployment {
-            metadata: dep_metadata,
-            spec: Some(spec),
-            ..Default::default()
-        }
-    }
-}
-
-/// Generate a fresh service
-impl From<&OpenFaasFunctionSpec> for Service {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        unimplemented!()
     }
 }
