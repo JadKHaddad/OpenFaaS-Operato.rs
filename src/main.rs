@@ -252,55 +252,52 @@ async fn reconcile(
     };
 
     let reconcile_resource_span = trace_span!("ReconcileResource", %name, %resource_namespace);
-    let _reconcile_resource_span_guard = reconcile_resource_span.enter();
 
     let api: Api<OpenFaaSFunction> =
         Api::namespaced(context.kubernetes_client.clone(), &resource_namespace);
 
-    async move {
-        let resource_namespace = resource_namespace.clone();
-        finalizer(
-            &api,
-            FINALIZER_NAME,
-            openfaas_function_crd,
-            |event| async move {
-                let api: Api<OpenFaaSFunction> =
-                    Api::namespaced(context.kubernetes_client.clone(), &resource_namespace);
+    let resource_namespace = resource_namespace.clone();
+    finalizer(
+        &api,
+        FINALIZER_NAME,
+        openfaas_function_crd,
+        |event| async move {
+            let api: Api<OpenFaaSFunction> =
+                Api::namespaced(context.kubernetes_client.clone(), &resource_namespace);
 
-                match event {
-                    Event::Apply(openfaas_function_crd) => {
-                        let apply_resource_span = trace_span!("ApplyResource");
+            match event {
+                Event::Apply(openfaas_function_crd) => {
+                    let apply_resource_span = trace_span!("ApplyResource");
 
-                        apply(
-                            api,
-                            context,
-                            openfaas_function_crd,
-                            &name,
-                            &resource_namespace,
-                        )
-                        .instrument(apply_resource_span)
-                        .await
-                        .map_err(FinalizeError::Apply)
-                    }
-                    Event::Cleanup(openfaas_function_crd) => {
-                        let cleanup_resource_span = trace_span!("CleanupResource");
-
-                        cleanup(
-                            api,
-                            context,
-                            openfaas_function_crd,
-                            &name,
-                            &resource_namespace,
-                        )
-                        .instrument(cleanup_resource_span)
-                        .await
-                        .map_err(FinalizeError::Cleanup)
-                    }
+                    apply(
+                        api,
+                        context,
+                        openfaas_function_crd,
+                        &name,
+                        &resource_namespace,
+                    )
+                    .instrument(apply_resource_span)
+                    .await
+                    .map_err(FinalizeError::Apply)
                 }
-            },
-        )
-        .await
-    }
+                Event::Cleanup(openfaas_function_crd) => {
+                    let cleanup_resource_span = trace_span!("CleanupResource");
+
+                    cleanup(
+                        api,
+                        context,
+                        openfaas_function_crd,
+                        &name,
+                        &resource_namespace,
+                    )
+                    .instrument(cleanup_resource_span)
+                    .await
+                    .map_err(FinalizeError::Cleanup)
+                }
+            }
+        },
+    )
+    .instrument(reconcile_resource_span)
     .await
     .map_err(ReconcileError::FinalizeError)
 }
