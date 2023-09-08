@@ -15,7 +15,7 @@ use kube::{
 };
 use openfaas_operato_rs::{
     consts::*,
-    crds::{
+    crds::defs::{
         IntoDeploymentError, IntoServiceError, OpenFaaSFunction, OpenFaasFunctionStatus,
         FINALIZER_NAME,
     },
