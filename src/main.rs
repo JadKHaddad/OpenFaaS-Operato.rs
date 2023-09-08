@@ -395,42 +395,21 @@ async fn check_resource_namespace(
     if resource_namespace != functions_namespace {
         tracing::error!("Resource's namespace does not match functions namespace.");
 
-        let mut openfaas_function_crd_inner = api
+        let mut openfaas_function_crd_with_status = api
             .get_status(name)
             .await
             .map_err(CheckResourceNamespaceError::Kube)?;
 
-        match openfaas_function_crd_inner.status {
-            Some(OpenFaasFunctionStatus::InvalidCRDNamespace) => {
-                tracing::info!("Resource already has invalid crd namespace status. Skipping.");
-            }
-            _ => {
-                tracing::info!("Setting status to invalid crd namespace.");
-
-                openfaas_function_crd_inner.status =
-                    Some(OpenFaasFunctionStatus::InvalidCRDNamespace);
-                api.replace_status(
-                    name,
-                    &PostParams::default(),
-                    serde_json::to_vec(&openfaas_function_crd_inner).map_err(|error| {
-                        CheckResourceNamespaceError::Status(StatusError {
-                            error: SetStatusError::Serilization(error),
-                            status: OpenFaasFunctionStatus::InvalidCRDNamespace,
-                        })
-                    })?,
-                )
-                .instrument(span)
-                .await
-                .map_err(|error| {
-                    CheckResourceNamespaceError::Status(StatusError {
-                        error: SetStatusError::Kube(error),
-                        status: OpenFaasFunctionStatus::InvalidCRDNamespace,
-                    })
-                })?;
-
-                tracing::info!("Status set to invalid crd namespace.");
-            }
-        }
+        replace_status(
+            api,
+            &mut openfaas_function_crd_with_status,
+            name,
+            OpenFaasFunctionStatus::InvalidFunctionNamespace,
+            span.clone(),
+        )
+        .instrument(span)
+        .await
+        .map_err(CheckResourceNamespaceError::Status)?;
 
         tracing::info!("Requeueing resource.");
 
@@ -461,43 +440,22 @@ async fn check_function_namespace(
             if function_namespace != functions_namespace {
                 tracing::error!(%function_namespace, "Function's namespace does not match functions namespace.");
 
-                let mut openfaas_function_crd_inner = api
+                let mut openfaas_function_crd_with_status = api
                     .get_status(name)
                     .instrument(span.clone())
                     .await
                     .map_err(CheckFunctionNamespaceError::Kube)?;
 
-                match openfaas_function_crd_inner.status {
-                    Some(OpenFaasFunctionStatus::InvalidFunctionNamespace) => {
-                        tracing::info!(%function_namespace, "Resource already has invalid function namespace status. Skipping.");
-                    }
-                    _ => {
-                        tracing::info!(%function_namespace, "Setting status to invalid function namespace.");
-
-                        openfaas_function_crd_inner.status =
-                            Some(OpenFaasFunctionStatus::InvalidFunctionNamespace);
-                        api.replace_status(
-                            name,
-                            &PostParams::default(),
-                            serde_json::to_vec(&openfaas_function_crd_inner).map_err(|error| {
-                                CheckFunctionNamespaceError::Status(StatusError {
-                                    error: SetStatusError::Serilization(error),
-                                    status: OpenFaasFunctionStatus::InvalidFunctionNamespace,
-                                })
-                            })?,
-                        )
-                        .instrument(span)
-                        .await
-                        .map_err(|error| {
-                            CheckFunctionNamespaceError::Status(StatusError {
-                                error: SetStatusError::Kube(error),
-                                status: OpenFaasFunctionStatus::InvalidFunctionNamespace,
-                            })
-                        })?;
-
-                        tracing::info!(%function_namespace, "Status set to invalid function namespace.");
-                    }
-                }
+                replace_status(
+                    api,
+                    &mut openfaas_function_crd_with_status,
+                    name,
+                    OpenFaasFunctionStatus::InvalidFunctionNamespace,
+                    span.clone(),
+                )
+                .instrument(span)
+                .await
+                .map_err(CheckFunctionNamespaceError::Status)?;
 
                 tracing::info!("Requeueing resource.");
 
@@ -589,6 +547,43 @@ async fn check_service(
     }
 
     Ok(None)
+}
+
+async fn replace_status(
+    api: &Api<OpenFaaSFunction>,
+    openfaas_function_crd_with_status: &mut OpenFaaSFunction,
+    name: &str,
+    status: OpenFaasFunctionStatus,
+    span: Span,
+) -> Result<(), StatusError> {
+    match openfaas_function_crd_with_status.status {
+        Some(ref func_status) if func_status == &status => {
+            tracing::info!("Resource already has {:?} status. Skipping.", status);
+        }
+        _ => {
+            tracing::info!("Setting status to {:?}.", status);
+
+            openfaas_function_crd_with_status.status = Some(status.clone());
+            api.replace_status(
+                name,
+                &PostParams::default(),
+                serde_json::to_vec(&openfaas_function_crd_with_status).map_err(|error| {
+                    StatusError {
+                        error: SetStatusError::Serilization(error),
+                        status: status.clone(),
+                    }
+                })?,
+            )
+            .instrument(span)
+            .await
+            .map_err(|error| StatusError {
+                error: SetStatusError::Kube(error),
+                status: status.clone(),
+            })?;
+            tracing::info!("Status set to {:?}.", status);
+        }
+    }
+    Ok(())
 }
 
 async fn cleanup(
