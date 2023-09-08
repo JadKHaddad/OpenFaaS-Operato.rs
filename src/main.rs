@@ -5,7 +5,6 @@ use k8s_openapi::api::{
 };
 use kube::{
     api::PostParams,
-    error::ErrorResponse,
     runtime::{
         controller::Action,
         finalizer::{Error as FinalizerError, Event},
@@ -16,7 +15,10 @@ use kube::{
 };
 use openfaas_operato_rs::{
     consts::*,
-    crds::{IntoDeploymentError, OpenFaaSFunction, OpenFaasFunctionStatus, FINALIZER_NAME},
+    crds::{
+        IntoDeploymentError, IntoServiceError, OpenFaaSFunction, OpenFaasFunctionStatus,
+        FINALIZER_NAME,
+    },
 };
 use std::sync::Arc;
 use thiserror::Error as ThisError;
@@ -48,43 +50,69 @@ struct ContextData {
 
 #[derive(ThisError, Debug)]
 enum ReconcileError {
-    #[error("Kubernetes error: {0}")]
-    Kube(
-        #[from]
-        #[source]
-        KubeError,
-    ),
     #[error("Resource has no namespace.")]
     Namespace,
 
-    #[error(transparent)]
-    FinalizeError(#[from] FinalizerError<FinalizeError>),
+    #[error("Failed to finalize resource: {0}")]
+    FinalizeError(#[source] FinalizerError<FinalizeError>),
 }
 
 #[derive(ThisError, Debug)]
 enum ApplyError {
+    #[error("Failed to check resource namespace: {0}")]
+    ResourceNamespace(#[source] CheckResourceNamespaceError),
+    #[error("Failed to check function namespace: {0}")]
+    FunctionNamespace(#[source] CheckFunctionNamespaceError),
+    #[error("Failed to set satus to {status:?}: {error}")]
+    Status {
+        #[source]
+        error: SetStatusError,
+        status: OpenFaasFunctionStatus,
+    },
+    #[error("Deployment error: {0}")]
+    Deployment(#[source] DeploymentError),
+    #[error("Service error: {0}")]
+    Service(#[source] ServiceError),
+}
+
+#[derive(ThisError, Debug)]
+enum CheckResourceNamespaceError {
     #[error("Kubernetes error: {0}")]
-    Kube(
-        #[from]
-        #[source]
-        KubeError,
-    ),
+    Kube(#[source] KubeError),
+}
+
+#[derive(ThisError, Debug)]
+enum CheckFunctionNamespaceError {
+    #[error("Kubernetes error: {0}")]
+    Kube(#[source] KubeError),
+}
+
+#[derive(ThisError, Debug)]
+enum SetStatusError {
+    #[error("Kubernetes error: {0}")]
+    Kube(#[source] KubeError),
     #[error("Failed to serialize resource.")]
-    Serilization(
-        #[from]
-        #[source]
-        serde_json::Error,
-    ),
+    Serilization(#[source] serde_json::Error),
+}
+
+#[derive(ThisError, Debug)]
+enum DeploymentError {
     #[error("Failed to get deployment: {0}")]
-    DeploymentGet(#[source] KubeError),
+    Get(#[source] KubeError),
     #[error("Failed to generate deployment: {0}")]
-    DeploymentGenerate(
-        #[from]
-        #[source]
-        IntoDeploymentError,
-    ),
+    Generate(#[source] IntoDeploymentError),
     #[error("Failed to apply deployment: {0}")]
-    DeploymentApply(#[source] KubeError),
+    Apply(#[source] KubeError),
+}
+
+#[derive(ThisError, Debug)]
+enum ServiceError {
+    #[error("Failed to get service: {0}")]
+    Get(#[source] KubeError),
+    #[error("Failed to generate service: {0}")]
+    Generate(#[source] IntoServiceError),
+    #[error("Failed to apply service: {0}")]
+    Apply(#[source] KubeError),
 }
 
 #[derive(ThisError, Debug)]
@@ -93,18 +121,10 @@ enum CleanupError {}
 #[derive(ThisError, Debug)]
 enum FinalizeError {
     #[error("Failed to apply resource: {0}")]
-    Apply(
-        #[from]
-        #[source]
-        ApplyError,
-    ),
+    Apply(#[source] ApplyError),
 
     #[error("Failed to cleanup resource: {0}")]
-    Cleanup(
-        #[from]
-        #[source]
-        CleanupError,
-    ),
+    Cleanup(#[source] CleanupError),
 }
 
 fn read_from_env_or_default(env_var: &str, default: &str) -> String {
@@ -119,8 +139,15 @@ async fn main() {
     init_tracing();
     OpenFaaSFunction::write_crds_to_file("crds.yaml");
 
+    let startup_span = trace_span!("Startup");
+    let startup_span_guard = startup_span.enter();
+
+    tracing::info!("Collecting environment variables.");
+
     let functions_namespace =
         read_from_env_or_default(FUNCTIONS_NAMESPACE_ENV_VAR, FUNCTIONS_DEFAULT_NAMESPACE);
+
+    tracing::info!("Creating kubernetes client.");
 
     let kubernetes_client = match KubeClient::try_default().await {
         Ok(client) => client,
@@ -130,19 +157,22 @@ async fn main() {
         }
     };
 
-    tracing::info!(namespace = %functions_namespace, "Checking if namespace exists.");
+    let check_namespace_span = trace_span!("CheckNamespace", namespace = %functions_namespace);
+    let check_namespace_span_guard = check_namespace_span.enter();
+
+    tracing::info!("Checking if namespace exists.");
     let namespace_api: Api<Namespace> = Api::all(kubernetes_client.clone());
     match namespace_api.get_opt(&functions_namespace).await {
         Ok(namespace_opt) => match namespace_opt {
             Some(_) => {
-                tracing::info!(namespace = %functions_namespace, "Namespace exists.");
+                tracing::info!("Namespace exists.");
             }
             None => {
-                tracing::warn!(namespace = %functions_namespace, "Namespace does not exist.");
+                tracing::warn!("Namespace does not exist.");
             }
         },
         Err(error) => {
-            tracing::warn!(%error, namespace = %functions_namespace, "Failed to check if namespace exists.");
+            tracing::warn!(%error,"Failed to check if namespace exists.");
         }
     }
 
@@ -157,6 +187,9 @@ async fn main() {
         kubernetes_client,
         functions_namespace,
     });
+
+    drop(startup_span_guard);
+    drop(check_namespace_span_guard);
 
     let controller_span = trace_span!("Controller");
     let _controller_span_guard = controller_span.enter();
@@ -273,7 +306,9 @@ async fn apply(
         if resource_namespace != functions_namespace {
             tracing::error!("Resource's namespace does not match functions namespace.");
 
-            let mut openfaas_function_crd_inner = api.get_status(name).await?;
+            let mut openfaas_function_crd_inner = api.get_status(name).await.map_err(|error| {
+                ApplyError::ResourceNamespace(CheckResourceNamespaceError::Kube(error))
+            })?;
             match openfaas_function_crd_inner.status {
                 Some(OpenFaasFunctionStatus::InvalidCRDNamespace) => {
                     tracing::info!("Resource already has invalid crd namespace status. Skipping.");
@@ -286,9 +321,18 @@ async fn apply(
                     api.replace_status(
                         name,
                         &PostParams::default(),
-                        serde_json::to_vec(&openfaas_function_crd_inner)?,
+                        serde_json::to_vec(&openfaas_function_crd_inner).map_err(|error| {
+                            ApplyError::Status {
+                                error: SetStatusError::Serilization(error),
+                                status: OpenFaasFunctionStatus::InvalidCRDNamespace,
+                            }
+                        })?,
                     )
-                    .await?;
+                    .await
+                    .map_err(|error| ApplyError::Status {
+                        error: SetStatusError::Kube(error),
+                        status: OpenFaasFunctionStatus::InvalidCRDNamespace,
+                    })?;
 
                     tracing::info!("Status set to invalid crd namespace.");
                 }
@@ -315,7 +359,10 @@ async fn apply(
                 if function_namespace != functions_namespace {
                     tracing::error!(%function_namespace, "Function's namespace does not match functions namespace.");
 
-                    let mut openfaas_function_crd_inner = api.get_status(name).await?;
+                    let mut openfaas_function_crd_inner =
+                        api.get_status(name).await.map_err(|error| {
+                            ApplyError::FunctionNamespace(CheckFunctionNamespaceError::Kube(error))
+                        })?;
                     match openfaas_function_crd_inner.status {
                         Some(OpenFaasFunctionStatus::InvalidFunctionNamespace) => {
                             tracing::info!(%function_namespace, "Resource already has invalid function namespace status. Skipping.");
@@ -328,9 +375,18 @@ async fn apply(
                             api.replace_status(
                                 name,
                                 &PostParams::default(),
-                                serde_json::to_vec(&openfaas_function_crd_inner)?,
+                                serde_json::to_vec(&openfaas_function_crd_inner).map_err(
+                                    |error| ApplyError::Status {
+                                        error: SetStatusError::Serilization(error),
+                                        status: OpenFaasFunctionStatus::InvalidFunctionNamespace,
+                                    },
+                                )?,
                             )
-                            .await?;
+                            .await
+                            .map_err(|error| ApplyError::Status {
+                                error: SetStatusError::Kube(error),
+                                status: OpenFaasFunctionStatus::InvalidFunctionNamespace,
+                            })?;
 
                             tracing::info!(%function_namespace, "Status set to invalid function namespace.");
                         }
@@ -354,7 +410,7 @@ async fn apply(
         let deployment_opt = deployment_api
             .get_opt(name)
             .await
-            .map_err(ApplyError::DeploymentGet)?;
+            .map_err(|error| ApplyError::Deployment(DeploymentError::Get(error)))?;
 
         match deployment_opt {
             Some(deployment) => {
@@ -364,11 +420,12 @@ async fn apply(
             None => {
                 tracing::info!("Deployment does not exist. Creating.");
 
-                let deployment = Deployment::try_from(&*openfaas_function_crd)?;
+                let deployment = Deployment::try_from(&*openfaas_function_crd)
+                    .map_err(|error| ApplyError::Deployment(DeploymentError::Generate(error)))?;
                 deployment_api
                     .create(&PostParams::default(), &deployment)
                     .await
-                    .map_err(ApplyError::DeploymentApply)?;
+                    .map_err(|error| ApplyError::Deployment(DeploymentError::Apply(error)))?;
 
                 tracing::info!("Deployment created.");
             }
@@ -383,7 +440,10 @@ async fn apply(
         let service_api: Api<Service> =
             Api::namespaced(context.kubernetes_client.clone(), functions_namespace);
 
-        let service_opt = service_api.get_opt(name).await?;
+        let service_opt = service_api
+            .get_opt(name)
+            .await
+            .map_err(|error| ApplyError::Service(ServiceError::Get(error)))?;
 
         match service_opt {
             Some(service) => {
