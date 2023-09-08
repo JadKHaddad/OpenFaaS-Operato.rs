@@ -7,3 +7,10 @@ spec:
   service: nodeinfo
   image: ghcr.io/openfaas/nodeinfo:latest
   namespace: openfaas-fn
+  labels:
+    label: "value"
+    label2: "value2"
+  annotations:
+    annotation: "value"
+    annotation2: "value2"
+  readOnlyRootFilesystem: false

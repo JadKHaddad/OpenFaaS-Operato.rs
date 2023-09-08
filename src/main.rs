@@ -16,7 +16,7 @@ use kube::{
 };
 use openfaas_operato_rs::{
     consts::*,
-    crds::{OpenFaaSFunction, OpenFaasFunctionStatus, FINALIZER_NAME},
+    crds::{IntoDeploymentError, OpenFaaSFunction, OpenFaasFunctionStatus, FINALIZER_NAME},
 };
 use std::sync::Arc;
 use thiserror::Error as ThisError;
@@ -75,6 +75,16 @@ enum ApplyError {
         #[source]
         serde_json::Error,
     ),
+    #[error("Failed to get deployment: {0}")]
+    DeploymentGet(#[source] KubeError),
+    #[error("Failed to generate deployment: {0}")]
+    DeploymentGenerate(
+        #[from]
+        #[source]
+        IntoDeploymentError,
+    ),
+    #[error("Failed to apply deployment: {0}")]
+    DeploymentApply(#[source] KubeError),
 }
 
 #[derive(ThisError, Debug)]
@@ -122,16 +132,17 @@ async fn main() {
 
     tracing::info!(namespace = %functions_namespace, "Checking if namespace exists.");
     let namespace_api: Api<Namespace> = Api::all(kubernetes_client.clone());
-    match namespace_api.get(&functions_namespace).await {
-        Ok(_) => {
-            tracing::info!(namespace = %functions_namespace, "Namespace exists.");
-        }
-        Err(error) => {
-            if let KubeError::Api(ErrorResponse { code: 404, .. }) = error {
-                tracing::warn!(%error, namespace = %functions_namespace, "Namespace does not exist.");
-            } else {
-                tracing::warn!(%error, namespace = %functions_namespace, "Failed to check if namespace exists.");
+    match namespace_api.get_opt(&functions_namespace).await {
+        Ok(namespace_opt) => match namespace_opt {
+            Some(_) => {
+                tracing::info!(namespace = %functions_namespace, "Namespace exists.");
             }
+            None => {
+                tracing::warn!(namespace = %functions_namespace, "Namespace does not exist.");
+            }
+        },
+        Err(error) => {
+            tracing::warn!(%error, namespace = %functions_namespace, "Failed to check if namespace exists.");
         }
     }
 
@@ -332,35 +343,63 @@ async fn apply(
             }
         }
     }
-
     {
-        // check if deployment exists
-        {
-            // yes
-            // compare
-        }
-        {
-            // no
-            // create
+        let check_deployment_span = trace_span!("CheckDeployment");
+        let _check_deployment_span_guard = check_deployment_span.enter();
+
+        tracing::info!("Checking if deployment exists.");
+        let deployment_api: Api<Deployment> =
+            Api::namespaced(context.kubernetes_client.clone(), functions_namespace);
+
+        let deployment_opt = deployment_api
+            .get_opt(name)
+            .await
+            .map_err(ApplyError::DeploymentGet)?;
+
+        match deployment_opt {
+            Some(deployment) => {
+                tracing::info!("Deployment exists. Comparing.");
+                // TODO: Check if the controller has deployed the deployment. if not set status to already exists and return with error
+            }
+            None => {
+                tracing::info!("Deployment does not exist. Creating.");
+
+                let deployment = Deployment::try_from(&*openfaas_function_crd)?;
+                deployment_api
+                    .create(&PostParams::default(), &deployment)
+                    .await
+                    .map_err(ApplyError::DeploymentApply)?;
+
+                tracing::info!("Deployment created.");
+            }
         }
     }
     {
-        // check if service exists
-        {
-            // yes
-            // compare
-        }
-        {
-            // no
-            // create
+        let check_service_span = trace_span!("CheckService");
+        let _check_service_span_guard = check_service_span.enter();
+
+        tracing::info!("Checking if service exists.");
+
+        let service_api: Api<Service> =
+            Api::namespaced(context.kubernetes_client.clone(), functions_namespace);
+
+        let service_opt = service_api.get_opt(name).await?;
+
+        match service_opt {
+            Some(service) => {
+                tracing::info!("Service exists. Comparing.");
+            }
+            None => {
+                tracing::info!("Service does not exist. Creating.");
+            }
         }
     }
 
-    // after deploying the deployment and service, set status to deployes
+    // after deploying the deployment and service, set status to deployed
     // if deployment and service are ready, set status to ready
 
     tracing::info!("Requeueing resource.");
-    Ok(Action::requeue(Duration::from_secs(10)))
+    Ok(Action::requeue(Duration::from_secs(15)))
 }
 
 async fn cleanup(

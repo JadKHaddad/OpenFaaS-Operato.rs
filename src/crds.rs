@@ -13,10 +13,12 @@ use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use kube::core::ObjectMeta;
 use kube::CustomResource;
 use kube::CustomResourceExt;
+use kube::Resource;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use thiserror::Error as ThisError;
 
 pub const FINALIZER_NAME: &str = "openfaasfunctions.operato.rs/finalizer";
 
@@ -157,7 +159,53 @@ impl OpenFaasFunctionSpec {
     }
 }
 
+#[derive(ThisError, Debug)]
+pub enum IntoDeploymentError {
+    #[error("Failed to get owner reference")]
+    FailedToGetOwnerReference,
+}
+
 /// Generate a fresh deployment with refs
+impl TryFrom<&OpenFaaSFunction> for Deployment {
+    type Error = IntoDeploymentError;
+
+    fn try_from(value: &OpenFaaSFunction) -> Result<Self, Self::Error> {
+        let oref = value
+            .controller_owner_ref(&())
+            .ok_or(IntoDeploymentError::FailedToGetOwnerReference)?;
+
+        let mut dep = Deployment::from(&value.spec);
+
+        dep.metadata.owner_references = Some(vec![oref]);
+
+        Ok(dep)
+    }
+}
+
+#[derive(ThisError, Debug)]
+pub enum IntoServiceError {
+    #[error("Failed to get owner reference")]
+    FailedToGetOwnerReference,
+}
+
+/// Generate a fresh service with refs
+impl TryFrom<&OpenFaaSFunction> for Service {
+    type Error = IntoServiceError;
+
+    fn try_from(value: &OpenFaaSFunction) -> Result<Self, Self::Error> {
+        let oref = value
+            .controller_owner_ref(&())
+            .ok_or(IntoServiceError::FailedToGetOwnerReference)?;
+
+        let mut svc = Service::from(&value.spec);
+
+        svc.metadata.owner_references = Some(vec![oref]);
+
+        Ok(svc)
+    }
+}
+
+/// Generate a fresh deployment
 impl From<&OpenFaasFunctionSpec> for Deployment {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
         // If Secrets are set, check if they exist
@@ -255,7 +303,7 @@ impl From<&OpenFaasFunctionSpec> for Deployment {
     }
 }
 
-/// Generate a fresh service with refs
+/// Generate a fresh service
 impl From<&OpenFaasFunctionSpec> for Service {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
         unimplemented!()
