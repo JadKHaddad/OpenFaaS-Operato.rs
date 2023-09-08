@@ -35,7 +35,9 @@ pub fn init_tracing() {
     }
 
     tracing_subscriber::fmt()
-        .with_target(false)
+        //.with_span_events(tracing_subscriber::fmt::format::FmtSpan::ACTIVE)
+        //.with_line_number(true)
+        .with_target(true)
         .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
         .with_level(true)
         .with_ansi(true)
@@ -139,41 +141,51 @@ async fn main() {
     init_tracing();
     OpenFaaSFunction::write_crds_to_file("crds.yaml");
 
-    let startup_span = trace_span!("Startup").entered();
+    let startup_span = trace_span!("Startup");
 
-    tracing::info!("Collecting environment variables.");
+    let (functions_namespace, kubernetes_client) = async {
+        tracing::info!("Collecting environment variables.");
 
-    let functions_namespace =
-        read_from_env_or_default(FUNCTIONS_NAMESPACE_ENV_VAR, FUNCTIONS_DEFAULT_NAMESPACE);
+        let functions_namespace =
+            read_from_env_or_default(FUNCTIONS_NAMESPACE_ENV_VAR, FUNCTIONS_DEFAULT_NAMESPACE);
 
-    tracing::info!("Creating kubernetes client.");
+        tracing::info!("Creating kubernetes client.");
 
-    let kubernetes_client = match KubeClient::try_default().await {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::error!(%error, "Failed to create kubernetes client. Exiting.");
-            std::process::exit(1);
-        }
-    };
-
-    let check_namespace_span =
-        trace_span!("CheckNamespace", namespace = %functions_namespace).entered();
-
-    tracing::info!("Checking if namespace exists.");
-    let namespace_api: Api<Namespace> = Api::all(kubernetes_client.clone());
-    match namespace_api.get_opt(&functions_namespace).await {
-        Ok(namespace_opt) => match namespace_opt {
-            Some(_) => {
-                tracing::info!("Namespace exists.");
+        let kubernetes_client = match KubeClient::try_default().await {
+            Ok(client) => client,
+            Err(error) => {
+                tracing::error!(%error, "Failed to create kubernetes client. Exiting.");
+                std::process::exit(1);
             }
-            None => {
-                tracing::warn!("Namespace does not exist.");
+        };
+
+        let check_namespace_span = trace_span!("CheckNamespace", namespace = %functions_namespace);
+
+        async {
+            tracing::info!("Checking if namespace exists.");
+
+            let namespace_api: Api<Namespace> = Api::all(kubernetes_client.clone());
+            match namespace_api.get_opt(&functions_namespace).await {
+                Ok(namespace_opt) => match namespace_opt {
+                    Some(_) => {
+                        tracing::info!("Namespace exists.");
+                    }
+                    None => {
+                        tracing::warn!("Namespace does not exist.");
+                    }
+                },
+                Err(error) => {
+                    tracing::warn!(%error,"Failed to check if namespace exists.");
+                }
             }
-        },
-        Err(error) => {
-            tracing::warn!(%error,"Failed to check if namespace exists.");
         }
+        .instrument(check_namespace_span)
+        .await;
+
+        (functions_namespace, kubernetes_client)
     }
+    .instrument(startup_span)
+    .await;
 
     let crd_api: Api<OpenFaaSFunction> = Api::all(kubernetes_client.clone());
 
@@ -187,41 +199,41 @@ async fn main() {
         functions_namespace,
     });
 
-    startup_span.exit();
-    check_namespace_span.exit();
-
     let controller_span = trace_span!("Controller");
-    let _controller_span_guard = controller_span.enter();
 
-    tracing::info!("Starting.");
+    async {
+        tracing::info!("Starting.");
 
-    Controller::new(crd_api, Config::default())
-        .owns(deployment_api, Config::default())
-        .owns(service_api, Config::default())
-        .shutdown_on_signal()
-        .run(reconcile, on_error, context)
-        .for_each(|reconciliation_result| async move {
-            match reconciliation_result {
-                Ok(_) => {
-                    tracing::info!("Reconciliation successful.");
+        let reconcile_span = trace_span!("Reconcile");
+
+        Controller::new(crd_api, Config::default())
+            .owns(deployment_api, Config::default())
+            .owns(service_api, Config::default())
+            .shutdown_on_signal()
+            .run(reconcile, on_error, context)
+            .for_each(|reconciliation_result| async move {
+                match reconciliation_result {
+                    Ok(_) => {
+                        tracing::info!("Reconciliation successful.");
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, "Reconciliation failed.");
+                    }
                 }
-                Err(error) => {
-                    tracing::error!(%error, "Reconciliation failed.");
-                }
-            }
-        })
-        .await;
+            })
+            .instrument(reconcile_span)
+            .await;
 
-    tracing::info!("Terminated.");
+        tracing::info!("Terminated.");
+    }
+    .instrument(controller_span)
+    .await;
 }
 
 async fn reconcile(
     openfaas_function_crd: Arc<OpenFaaSFunction>,
     context: Arc<ContextData>,
 ) -> Result<Action, ReconcileError> {
-    let reconcile_span = trace_span!("Reconcile");
-    let _reconcile_span_guard = reconcile_span.enter();
-
     let name = openfaas_function_crd.name_any();
 
     let resource_namespace: String = match openfaas_function_crd.namespace() {
@@ -252,7 +264,6 @@ async fn reconcile(
                 match event {
                     Event::Apply(openfaas_function_crd) => {
                         let apply_resource_span = trace_span!("ApplyResource");
-                        let _apply_resource_span_guard = apply_resource_span.enter();
 
                         apply(
                             api,
@@ -261,12 +272,12 @@ async fn reconcile(
                             &name,
                             &resource_namespace,
                         )
+                        .instrument(apply_resource_span)
                         .await
                         .map_err(FinalizeError::Apply)
                     }
                     Event::Cleanup(openfaas_function_crd) => {
                         let cleanup_resource_span = trace_span!("CleanupResource");
-                        let _cleanup_resource_span_guard = cleanup_resource_span.enter();
 
                         cleanup(
                             api,
@@ -275,6 +286,7 @@ async fn reconcile(
                             &name,
                             &resource_namespace,
                         )
+                        .instrument(cleanup_resource_span)
                         .await
                         .map_err(FinalizeError::Cleanup)
                     }
@@ -297,19 +309,18 @@ async fn apply(
     tracing::info!("Applying resource.");
     let functions_namespace = &context.functions_namespace;
 
-    {
-        let check_res_namespace_span = trace_span!("CheckResourceNamespace", %functions_namespace);
-        let _check_res_namespace_span_guard = check_res_namespace_span.enter();
+    let check_res_namespace_span = trace_span!("CheckResourceNamespace", %functions_namespace);
+    let check_res_namespace_span_clone = check_res_namespace_span.clone();
 
+    let action_opt: Result<Option<Action>, ApplyError> = async {
         tracing::info!("Comparing resource's namespace to functions namespace.");
+
         if resource_namespace != functions_namespace {
             tracing::error!("Resource's namespace does not match functions namespace.");
 
             let mut openfaas_function_crd_inner = api.get_status(name).await.map_err(|error| {
                 ApplyError::ResourceNamespace(CheckResourceNamespaceError::Kube(error))
             })?;
-
-            let _check_res_namespace_span_guard = check_res_namespace_span.enter();
 
             match openfaas_function_crd_inner.status {
                 Some(OpenFaasFunctionStatus::InvalidCRDNamespace) => {
@@ -330,13 +341,12 @@ async fn apply(
                             }
                         })?,
                     )
+                    .instrument(check_res_namespace_span_clone)
                     .await
                     .map_err(|error| ApplyError::Status {
                         error: SetStatusError::Kube(error),
                         status: OpenFaasFunctionStatus::InvalidCRDNamespace,
                     })?;
-
-                    let _check_res_namespace_span_guard = check_res_namespace_span.enter();
 
                     tracing::info!("Status set to invalid crd namespace.");
                 }
@@ -344,13 +354,22 @@ async fn apply(
 
             tracing::info!("Requeueing resource.");
 
-            return Ok(Action::requeue(Duration::from_secs(10)));
+            return Ok(Some(Action::requeue(Duration::from_secs(10))));
         }
-    }
-    {
-        let check_fun_namespace_span = trace_span!("CheckFunctionNamespace", %functions_namespace);
-        let _check_fun_namespace_span_guard = check_fun_namespace_span.enter();
 
+        Ok(None)
+    }
+    .instrument(check_res_namespace_span)
+    .await;
+
+    if let Some(action) = action_opt? {
+        return Ok(action);
+    }
+
+    let check_fun_namespace_span = trace_span!("CheckFunctionNamespace", %functions_namespace);
+    let check_fun_namespace_span_clone = check_fun_namespace_span.clone();
+
+    let action_opt: Result<Option<Action>, ApplyError> = async {
         match openfaas_function_crd.spec.namespace {
             None => {
                 tracing::info!(default = %functions_namespace, "Function has no namespace. Assuming default.");
@@ -364,11 +383,9 @@ async fn apply(
                     tracing::error!(%function_namespace, "Function's namespace does not match functions namespace.");
 
                     let mut openfaas_function_crd_inner =
-                        api.get_status(name).await.map_err(|error| {
+                        api.get_status(name).instrument(check_fun_namespace_span_clone.clone()).await.map_err(|error| {
                             ApplyError::FunctionNamespace(CheckFunctionNamespaceError::Kube(error))
                         })?;
-
-                    let _check_fun_namespace_span_guard = check_fun_namespace_span.enter();
 
                     match openfaas_function_crd_inner.status {
                         Some(OpenFaasFunctionStatus::InvalidFunctionNamespace) => {
@@ -389,13 +406,12 @@ async fn apply(
                                     },
                                 )?,
                             )
+                            .instrument(check_fun_namespace_span_clone)
                             .await
                             .map_err(|error| ApplyError::Status {
                                 error: SetStatusError::Kube(error),
                                 status: OpenFaasFunctionStatus::InvalidFunctionNamespace,
                             })?;
-
-                            let _check_fun_namespace_span_guard = check_fun_namespace_span.enter();
 
                             tracing::info!(%function_namespace, "Status set to invalid function namespace.");
                         }
@@ -403,25 +419,32 @@ async fn apply(
 
                     tracing::info!("Requeueing resource.");
 
-                    return Ok(Action::requeue(Duration::from_secs(10)));
+                    return Ok(Some(Action::requeue(Duration::from_secs(10))));
                 }
             }
         }
-    }
-    {
-        let check_deployment_span = trace_span!("CheckDeployment");
-        let _check_deployment_span_guard = check_deployment_span.enter();
 
+        Ok(None)
+
+    }.instrument(check_fun_namespace_span).await;
+
+    if let Some(action) = action_opt? {
+        return Ok(action);
+    }
+
+    let check_deployment_span = trace_span!("CheckDeployment");
+    let check_deployment_span_clone = check_deployment_span.clone();
+
+    let action_opt: Result<Option<Action>, ApplyError> = async {
         tracing::info!("Checking if deployment exists.");
         let deployment_api: Api<Deployment> =
             Api::namespaced(context.kubernetes_client.clone(), functions_namespace);
 
         let deployment_opt = deployment_api
             .get_opt(name)
+            .instrument(check_deployment_span_clone.clone())
             .await
             .map_err(|error| ApplyError::Deployment(DeploymentError::Get(error)))?;
-
-        let _check_deployment_span_guard = check_deployment_span.enter();
 
         match deployment_opt {
             Some(deployment) => {
@@ -435,17 +458,27 @@ async fn apply(
                     .map_err(|error| ApplyError::Deployment(DeploymentError::Generate(error)))?;
                 deployment_api
                     .create(&PostParams::default(), &deployment)
+                    .instrument(check_deployment_span_clone)
                     .await
                     .map_err(|error| ApplyError::Deployment(DeploymentError::Apply(error)))?;
 
                 tracing::info!("Deployment created.");
             }
         }
-    }
-    {
-        let check_service_span = trace_span!("CheckService");
-        let _check_service_span_guard = check_service_span.enter();
 
+        Ok(None)
+    }
+    .instrument(check_deployment_span)
+    .await;
+
+    if let Some(action) = action_opt? {
+        return Ok(action);
+    }
+
+    let check_service_span = trace_span!("CheckService");
+    let check_service_span_clone = check_service_span.clone();
+
+    let action_opt: Result<Option<Action>, ApplyError> = async {
         tracing::info!("Checking if service exists.");
 
         let service_api: Api<Service> =
@@ -453,10 +486,9 @@ async fn apply(
 
         let service_opt = service_api
             .get_opt(name)
+            .instrument(check_service_span_clone)
             .await
             .map_err(|error| ApplyError::Service(ServiceError::Get(error)))?;
-
-        let _check_service_span_guard = check_service_span.enter();
 
         match service_opt {
             Some(service) => {
@@ -466,6 +498,14 @@ async fn apply(
                 tracing::info!("Service does not exist. Creating.");
             }
         }
+
+        Ok(None)
+    }
+    .instrument(check_service_span)
+    .await;
+
+    if let Some(action) = action_opt? {
+        return Ok(action);
     }
 
     // after deploying the deployment and service, set status to deployed
