@@ -23,7 +23,7 @@ use openfaas_operato_rs::{
 use std::sync::Arc;
 use thiserror::Error as ThisError;
 use tokio::time::Duration;
-use tracing::trace_span;
+use tracing::{trace_span, Instrument};
 use tracing_subscriber::EnvFilter;
 
 pub fn init_tracing() {
@@ -139,8 +139,7 @@ async fn main() {
     init_tracing();
     OpenFaaSFunction::write_crds_to_file("crds.yaml");
 
-    let startup_span = trace_span!("Startup");
-    let startup_span_guard = startup_span.enter();
+    let startup_span = trace_span!("Startup").entered();
 
     tracing::info!("Collecting environment variables.");
 
@@ -157,8 +156,8 @@ async fn main() {
         }
     };
 
-    let check_namespace_span = trace_span!("CheckNamespace", namespace = %functions_namespace);
-    let check_namespace_span_guard = check_namespace_span.enter();
+    let check_namespace_span =
+        trace_span!("CheckNamespace", namespace = %functions_namespace).entered();
 
     tracing::info!("Checking if namespace exists.");
     let namespace_api: Api<Namespace> = Api::all(kubernetes_client.clone());
@@ -188,8 +187,8 @@ async fn main() {
         functions_namespace,
     });
 
-    drop(startup_span_guard);
-    drop(check_namespace_span_guard);
+    startup_span.exit();
+    check_namespace_span.exit();
 
     let controller_span = trace_span!("Controller");
     let _controller_span_guard = controller_span.enter();
@@ -309,6 +308,9 @@ async fn apply(
             let mut openfaas_function_crd_inner = api.get_status(name).await.map_err(|error| {
                 ApplyError::ResourceNamespace(CheckResourceNamespaceError::Kube(error))
             })?;
+
+            let _check_res_namespace_span_guard = check_res_namespace_span.enter();
+
             match openfaas_function_crd_inner.status {
                 Some(OpenFaasFunctionStatus::InvalidCRDNamespace) => {
                     tracing::info!("Resource already has invalid crd namespace status. Skipping.");
@@ -333,6 +335,8 @@ async fn apply(
                         error: SetStatusError::Kube(error),
                         status: OpenFaasFunctionStatus::InvalidCRDNamespace,
                     })?;
+
+                    let _check_res_namespace_span_guard = check_res_namespace_span.enter();
 
                     tracing::info!("Status set to invalid crd namespace.");
                 }
@@ -363,6 +367,9 @@ async fn apply(
                         api.get_status(name).await.map_err(|error| {
                             ApplyError::FunctionNamespace(CheckFunctionNamespaceError::Kube(error))
                         })?;
+
+                    let _check_fun_namespace_span_guard = check_fun_namespace_span.enter();
+
                     match openfaas_function_crd_inner.status {
                         Some(OpenFaasFunctionStatus::InvalidFunctionNamespace) => {
                             tracing::info!(%function_namespace, "Resource already has invalid function namespace status. Skipping.");
@@ -388,6 +395,8 @@ async fn apply(
                                 status: OpenFaasFunctionStatus::InvalidFunctionNamespace,
                             })?;
 
+                            let _check_fun_namespace_span_guard = check_fun_namespace_span.enter();
+
                             tracing::info!(%function_namespace, "Status set to invalid function namespace.");
                         }
                     }
@@ -411,6 +420,8 @@ async fn apply(
             .get_opt(name)
             .await
             .map_err(|error| ApplyError::Deployment(DeploymentError::Get(error)))?;
+
+        let _check_deployment_span_guard = check_deployment_span.enter();
 
         match deployment_opt {
             Some(deployment) => {
@@ -444,6 +455,8 @@ async fn apply(
             .get_opt(name)
             .await
             .map_err(|error| ApplyError::Service(ServiceError::Get(error)))?;
+
+        let _check_service_span_guard = check_service_span.enter();
 
         match service_opt {
             Some(service) => {
