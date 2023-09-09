@@ -2,6 +2,7 @@ use super::defs::{
     DeploymentDiff, IntoDeploymentError, IntoServiceError, OpenFaaSFunction,
     OpenFaasFunctionOkStatus, OpenFaasFunctionSpec, ServiceDiff,
 };
+use itertools::Itertools;
 use k8s_openapi::{
     api::{
         apps::v1::{Deployment, DeploymentSpec},
@@ -48,8 +49,13 @@ impl OpenFaasFunctionSpec {
         !self.secrets.as_ref().unwrap_or(&vec![]).is_empty()
     }
 
-    pub fn get_secrets_vec(&self) -> Vec<String> {
-        self.secrets.clone().unwrap_or(vec![])
+    pub fn get_secrets_unique_vec(&self) -> Vec<String> {
+        self.secrets
+            .clone()
+            .unwrap_or(vec![])
+            .into_iter()
+            .unique()
+            .collect()
     }
 
     fn to_env_process_name(&self) -> String {
@@ -178,33 +184,35 @@ impl OpenFaasFunctionSpec {
     }
 
     fn to_secrets_projected_volume_source(&self) -> Option<ProjectedVolumeSource> {
-        if let Some(secrets) = self.secrets.clone() {
-            let mut sources = Vec::new();
+        let secrets = self.get_secrets_unique_vec();
 
-            for secret in secrets {
-                let items = vec![KeyToPath {
-                    key: secret.clone(),
-                    path: secret.clone(),
-                    ..Default::default()
-                }];
-
-                sources.push(VolumeProjection {
-                    secret: Some(SecretProjection {
-                        name: Some(secret),
-                        items: Some(items),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                });
-            }
-
-            Some(ProjectedVolumeSource {
-                sources: Some(sources),
-                ..Default::default()
-            })
-        } else {
-            None
+        if secrets.is_empty() {
+            return None;
         }
+
+        let mut sources = Vec::new();
+
+        for secret in secrets {
+            let items = vec![KeyToPath {
+                key: secret.clone(),
+                path: secret.clone(),
+                ..Default::default()
+            }];
+
+            sources.push(VolumeProjection {
+                secret: Some(SecretProjection {
+                    name: Some(secret),
+                    items: Some(items),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
+        }
+
+        Some(ProjectedVolumeSource {
+            sources: Some(sources),
+            ..Default::default()
+        })
     }
 
     fn to_secrets_volume(&self) -> Volume {

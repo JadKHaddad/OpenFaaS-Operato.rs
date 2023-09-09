@@ -615,7 +615,7 @@ async fn check_secrets(
 ) -> Result<Option<Action>, CheckSecretsError> {
     tracing::info!("Checking if secrets exist.");
 
-    let secrets = openfaas_function_crd.spec.get_secrets_vec();
+    let secrets = openfaas_function_crd.spec.get_secrets_unique_vec();
     if !secrets.is_empty() {
         let secrets_api: Api<Secret> =
             Api::namespaced(context.kubernetes_client.clone(), functions_namespace);
