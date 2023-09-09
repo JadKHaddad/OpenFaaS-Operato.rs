@@ -70,10 +70,28 @@ pub struct FunctionResources {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
 pub enum OpenFaasFunctionStatus {
-    Ready,
+    Ok(OpenFaasFunctionOkStatus),
+    Err(OpenFaasFunctionErrorStatus),
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
+pub enum OpenFaasFunctionOkStatus {
     Deployed,
+    Ready,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema, ThisError)]
+pub enum OpenFaasFunctionErrorStatus {
+    #[error("The CRD namespace does not match the functions namespace")]
     InvalidCRDNamespace,
+    #[error("The function namespace does not match the functions namespace")]
     InvalidFunctionNamespace,
+    #[error("The function deployment already deployed by third party")]
+    DeploymentAlreadyExists,
+    #[error("The function service already deployed by third party")]
+    ServiceAlreadyExists,
+    #[error("The given secrets to mount do not exist")]
+    SecretsNotFound,
 }
 
 pub enum DeploymentDiff {

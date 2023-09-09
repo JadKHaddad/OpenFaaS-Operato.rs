@@ -1,6 +1,6 @@
 use super::defs::{
-    DeploymentDiff, IntoDeploymentError, IntoServiceError, OpenFaaSFunction, OpenFaasFunctionSpec,
-    ServiceDiff,
+    DeploymentDiff, IntoDeploymentError, IntoServiceError, OpenFaaSFunction,
+    OpenFaasFunctionOkStatus, OpenFaasFunctionSpec, ServiceDiff,
 };
 use k8s_openapi::{
     api::{
@@ -16,7 +16,20 @@ use k8s_openapi::{
     },
 };
 use kube::core::{CustomResourceExt, ObjectMeta, Resource};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt::Display};
+
+impl Display for OpenFaasFunctionOkStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OpenFaasFunctionOkStatus::Deployed => {
+                write!(f, "Deployment and service are deployed by the operator")
+            }
+            OpenFaasFunctionOkStatus::Ready => {
+                write!(f, "Deployment is ready. Service has the correct endpoints")
+            }
+        }
+    }
+}
 
 impl OpenFaasFunctionSpec {
     pub fn deployment_diffs(&self, deployment: &Deployment) -> Vec<DeploymentDiff> {

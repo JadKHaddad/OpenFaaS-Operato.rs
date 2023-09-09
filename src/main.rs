@@ -11,13 +11,13 @@ use kube::{
         watcher::Config,
     },
     runtime::{finalizer, Controller},
-    Api, Client as KubeClient, Error as KubeError, ResourceExt,
+    Api, Client as KubeClient, Error as KubeError, Resource, ResourceExt,
 };
 use openfaas_operato_rs::{
     consts::*,
     crds::defs::{
-        IntoDeploymentError, IntoServiceError, OpenFaaSFunction, OpenFaasFunctionStatus,
-        FINALIZER_NAME,
+        IntoDeploymentError, IntoServiceError, OpenFaaSFunction, OpenFaasFunctionErrorStatus,
+        OpenFaasFunctionStatus, FINALIZER_NAME,
     },
 };
 use std::sync::Arc;
@@ -37,7 +37,7 @@ pub fn init_tracing() {
     tracing_subscriber::fmt()
         //.with_span_events(tracing_subscriber::fmt::format::FmtSpan::ACTIVE)
         //.with_line_number(true)
-        .with_target(true)
+        .with_target(false)
         .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
         .with_level(true)
         .with_ansi(true)
@@ -105,22 +105,34 @@ enum SetStatusError {
 
 #[derive(ThisError, Debug)]
 enum DeploymentError {
+    #[error("Kubernetes error: {0}")]
+    Kube(#[source] KubeError),
     #[error("Failed to get deployment: {0}")]
     Get(#[source] KubeError),
+    #[error("Failed to get owner reference")]
+    OwnerReference,
     #[error("Failed to generate deployment: {0}")]
     Generate(#[source] IntoDeploymentError),
     #[error("Failed to apply deployment: {0}")]
     Apply(#[source] KubeError),
+    #[error(transparent)]
+    Status(StatusError),
 }
 
 #[derive(ThisError, Debug)]
 enum ServiceError {
+    #[error("Kubernetes error: {0}")]
+    Kube(#[source] KubeError),
     #[error("Failed to get service: {0}")]
     Get(#[source] KubeError),
+    #[error("Failed to get owner reference")]
+    OwnerReference,
     #[error("Failed to generate service: {0}")]
     Generate(#[source] IntoServiceError),
     #[error("Failed to apply service: {0}")]
     Apply(#[source] KubeError),
+    #[error(transparent)]
+    Status(StatusError),
 }
 
 #[derive(ThisError, Debug)]
@@ -344,6 +356,7 @@ async fn apply(
 
     let check_deployment_span = trace_span!("CheckDeployment");
     if let Some(action) = check_deployment(
+        &api,
         &context,
         &openfaas_function_crd,
         name,
@@ -359,6 +372,7 @@ async fn apply(
 
     let check_service_span = trace_span!("CheckService");
     if let Some(action) = check_service(
+        &api,
         &context,
         &openfaas_function_crd,
         name,
@@ -401,7 +415,7 @@ async fn check_resource_namespace(
             api,
             &mut openfaas_function_crd_with_status,
             name,
-            OpenFaasFunctionStatus::InvalidFunctionNamespace,
+            OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::InvalidCRDNamespace),
             span.clone(),
         )
         .instrument(span)
@@ -447,7 +461,9 @@ async fn check_function_namespace(
                     api,
                     &mut openfaas_function_crd_with_status,
                     name,
-                    OpenFaasFunctionStatus::InvalidFunctionNamespace,
+                    OpenFaasFunctionStatus::Err(
+                        OpenFaasFunctionErrorStatus::InvalidFunctionNamespace,
+                    ),
                     span.clone(),
                 )
                 .instrument(span)
@@ -465,6 +481,7 @@ async fn check_function_namespace(
 }
 
 async fn check_deployment(
+    api: &Api<OpenFaaSFunction>,
     context: &ContextData,
     openfaas_function_crd: &OpenFaaSFunction,
     name: &str,
@@ -485,7 +502,41 @@ async fn check_deployment(
     match deployment_opt {
         Some(deployment) => {
             tracing::info!("Deployment exists. Comparing.");
-            // TODO: Check if the controller has deployed the deployment. if not set status to already exists and return with error
+
+            let crd_oref = openfaas_function_crd
+                .controller_owner_ref(&())
+                .ok_or(DeploymentError::OwnerReference)?;
+
+            let deployment_orefs = deployment.owner_references();
+
+            if !deployment_orefs.contains(&crd_oref) {
+                tracing::warn!("Deployment does not have owner reference.");
+
+                let mut openfaas_function_crd_with_status = api
+                    .get_status(name)
+                    .instrument(span.clone())
+                    .await
+                    .map_err(DeploymentError::Kube)?;
+
+                replace_status(
+                    api,
+                    &mut openfaas_function_crd_with_status,
+                    name,
+                    OpenFaasFunctionStatus::Err(
+                        OpenFaasFunctionErrorStatus::DeploymentAlreadyExists,
+                    ),
+                    span.clone(),
+                )
+                .instrument(span)
+                .await
+                .map_err(DeploymentError::Status)?;
+
+                tracing::info!("Requeueing resource.");
+
+                return Ok(Some(Action::requeue(Duration::from_secs(10))));
+            }
+
+            // TODO: Compare deployment
         }
         None => {
             //TODO: Handle secrets!
@@ -507,6 +558,7 @@ async fn check_deployment(
 }
 
 async fn check_service(
+    api: &Api<OpenFaaSFunction>,
     context: &ContextData,
     openfaas_function_crd: &OpenFaaSFunction,
     name: &str,
@@ -527,7 +579,39 @@ async fn check_service(
     match service_opt {
         Some(service) => {
             tracing::info!("Service exists. Comparing.");
-            // TODO
+
+            let crd_oref = openfaas_function_crd
+                .controller_owner_ref(&())
+                .ok_or(ServiceError::OwnerReference)?;
+
+            let service_orefs = service.owner_references();
+
+            if !service_orefs.contains(&crd_oref) {
+                tracing::warn!("Service does not have owner reference.");
+
+                let mut openfaas_function_crd_with_status = api
+                    .get_status(name)
+                    .instrument(span.clone())
+                    .await
+                    .map_err(ServiceError::Kube)?;
+
+                replace_status(
+                    api,
+                    &mut openfaas_function_crd_with_status,
+                    name,
+                    OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::ServiceAlreadyExists),
+                    span.clone(),
+                )
+                .instrument(span)
+                .await
+                .map_err(ServiceError::Status)?;
+
+                tracing::info!("Requeueing resource.");
+
+                return Ok(Some(Action::requeue(Duration::from_secs(10))));
+            }
+
+            // TODO: Compare service
         }
         None => {
             tracing::info!("Service does not exist. Creating.");

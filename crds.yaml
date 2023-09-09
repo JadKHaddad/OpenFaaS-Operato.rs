@@ -100,10 +100,13 @@ spec:
             type: object
           status:
             enum:
-            - Ready
-            - Deployed
             - InvalidCRDNamespace
             - InvalidFunctionNamespace
+            - DeploymentAlreadyExists
+            - ServiceAlreadyExists
+            - SecretsNotFound
+            - Deployed
+            - Ready
             nullable: true
             type: string
         required:

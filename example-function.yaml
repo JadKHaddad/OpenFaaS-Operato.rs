@@ -19,5 +19,5 @@ spec:
   secrets:
     - s3accesskey
     - s2accesskey
-
   readOnlyRootFilesystem: true
+# kubectl describe openfaasfunctions -n openfaas-fn nodeinfo
