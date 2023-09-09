@@ -488,6 +488,7 @@ async fn check_deployment(
             // TODO: Check if the controller has deployed the deployment. if not set status to already exists and return with error
         }
         None => {
+            //TODO: Handle secrets!
             tracing::info!("Deployment does not exist. Creating.");
 
             let deployment =

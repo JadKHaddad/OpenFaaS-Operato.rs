@@ -16,5 +16,8 @@ spec:
   envVars:
     envVar: "value"
     envVar2: "value2"
+  secrets:
+    - s3accesskey
+    - s2accesskey
 
   readOnlyRootFilesystem: true

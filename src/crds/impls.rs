@@ -6,9 +6,9 @@ use k8s_openapi::{
     api::{
         apps::v1::{Deployment, DeploymentSpec},
         core::v1::{
-            Container, ContainerPort, EnvVar, HTTPGetAction, PodSpec, PodTemplateSpec, Probe,
-            ResourceRequirements, SecurityContext, Service, ServicePort, ServiceSpec, Volume,
-            VolumeMount,
+            Container, ContainerPort, EnvVar, HTTPGetAction, KeyToPath, PodSpec, PodTemplateSpec,
+            Probe, ProjectedVolumeSource, ResourceRequirements, SecretProjection, SecurityContext,
+            Service, ServicePort, ServiceSpec, Volume, VolumeMount, VolumeProjection,
         },
     },
     apimachinery::pkg::{
@@ -29,6 +29,14 @@ impl OpenFaasFunctionSpec {
 
     fn should_create_tmp_volume(&self) -> bool {
         self.read_only_root_filesystem.unwrap_or(false)
+    }
+
+    fn should_create_secrets_volume(&self) -> bool {
+        !self.secrets.as_ref().unwrap_or(&vec![]).is_empty()
+    }
+
+    fn to_env_process_name(&self) -> String {
+        String::from("fprocess")
     }
 
     fn to_name(&self) -> String {
@@ -124,18 +132,81 @@ impl OpenFaasFunctionSpec {
         })
     }
 
+    fn to_tmp_volume_name(&self) -> String {
+        String::from("tmp")
+    }
+
     fn to_tmp_volume(&self) -> Volume {
         Volume {
-            name: String::from("tmp"),
+            name: self.to_tmp_volume_name(),
             empty_dir: Some(Default::default()),
             ..Default::default()
         }
     }
 
+    fn to_tmp_volume_mount_path(&self) -> String {
+        String::from("/tmp")
+    }
+
     fn to_tmp_volume_mount(&self) -> VolumeMount {
         VolumeMount {
-            name: String::from("tmp"),
-            mount_path: String::from("/tmp"),
+            name: self.to_tmp_volume_name(),
+            mount_path: self.to_tmp_volume_mount_path(),
+            ..Default::default()
+        }
+    }
+
+    fn to_secrets_volume_name(&self) -> String {
+        format!("{}-projected-secrets", self.to_name())
+    }
+
+    fn to_secrets_projected_volume_source(&self) -> Option<ProjectedVolumeSource> {
+        if let Some(secrets) = self.secrets.clone() {
+            let mut sources = Vec::new();
+
+            for secret in secrets {
+                let items = vec![KeyToPath {
+                    key: secret.clone(),
+                    path: secret.clone(),
+                    ..Default::default()
+                }];
+
+                sources.push(VolumeProjection {
+                    secret: Some(SecretProjection {
+                        name: Some(secret),
+                        items: Some(items),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                });
+            }
+
+            Some(ProjectedVolumeSource {
+                sources: Some(sources),
+                ..Default::default()
+            })
+        } else {
+            None
+        }
+    }
+
+    fn to_secrets_volume(&self) -> Volume {
+        Volume {
+            name: self.to_secrets_volume_name(),
+            projected: self.to_secrets_projected_volume_source(),
+            ..Default::default()
+        }
+    }
+
+    fn to_secrets_volume_mount_path(&self) -> String {
+        String::from("/var/openfaas/secrets")
+    }
+
+    fn to_secrets_volume_mount(&self) -> VolumeMount {
+        VolumeMount {
+            name: self.to_secrets_volume_name(),
+            mount_path: self.to_secrets_volume_mount_path(),
+            read_only: Some(true),
             ..Default::default()
         }
     }
@@ -199,21 +270,40 @@ impl From<&OpenFaasFunctionSpec> for Option<SecurityContext> {
     }
 }
 
-impl From<&OpenFaasFunctionSpec> for Option<Vec<EnvVar>> {
+impl From<&OpenFaasFunctionSpec> for Vec<EnvVar> {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
-        if let Some(env_vars) = value.env_vars.clone() {
-            let env_vars: Vec<EnvVar> = env_vars
-                .into_iter()
-                .map(|(k, v)| EnvVar {
+        let mut env_vars = Vec::new();
+
+        if let Some(env_process) = value.env_process.clone() {
+            env_vars.push(EnvVar {
+                name: value.to_env_process_name(),
+                value: Some(env_process),
+                ..Default::default()
+            });
+        }
+
+        if let Some(env_vars_map) = value.env_vars.clone() {
+            for (k, v) in env_vars_map {
+                env_vars.push(EnvVar {
                     name: k,
                     value: Some(v),
                     ..Default::default()
-                })
-                .collect();
+                });
+            }
+        }
 
-            Some(env_vars)
-        } else {
+        env_vars
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Option<Vec<EnvVar>> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        let env_vars = Vec::<EnvVar>::from(value);
+
+        if env_vars.is_empty() {
             None
+        } else {
+            Some(env_vars)
         }
     }
 }
@@ -258,6 +348,10 @@ impl From<&OpenFaasFunctionSpec> for Vec<VolumeMount> {
             volume_mounts.push(value.to_tmp_volume_mount());
         }
 
+        if value.should_create_secrets_volume() {
+            volume_mounts.push(value.to_secrets_volume_mount());
+        }
+
         volume_mounts
     }
 }
@@ -286,6 +380,10 @@ impl From<&OpenFaasFunctionSpec> for Vec<Volume> {
 
         if value.should_create_tmp_volume() {
             volumes.push(value.to_tmp_volume());
+        }
+
+        if value.should_create_secrets_volume() {
+            volumes.push(value.to_secrets_volume());
         }
 
         volumes
@@ -358,8 +456,6 @@ impl From<&OpenFaasFunctionSpec> for Option<DeploymentSpec> {
 /// Generate a fresh deployment
 impl From<&OpenFaasFunctionSpec> for Deployment {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
-        // If Secrets are set, check if they exist
-
         Deployment {
             metadata: value.to_deployment_meta(),
             spec: Option::<DeploymentSpec>::from(value),
