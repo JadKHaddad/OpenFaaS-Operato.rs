@@ -168,62 +168,41 @@ enum FinalizeError {
 }
 
 fn read_from_env_or_default(env_var: &str, default: &str) -> String {
+    tracing::debug!(%env_var, %default, "Reading environment variable.");
+
     std::env::var(env_var).unwrap_or_else(|_| {
         tracing::warn!(%default, "{env_var} not set, using default.");
         default.to_string()
     })
 }
 
-#[tokio::main]
-async fn main() {
-    init_tracing();
-    OpenFaaSFunction::write_crds_to_file("crds.yaml");
+async fn start_up(
+    span: Span,
+) -> (
+    Api<OpenFaaSFunction>,
+    Api<Deployment>,
+    Api<Service>,
+    Arc<ContextData>,
+) {
+    tracing::info!("Collecting environment variables.");
 
-    let startup_span = trace_span!("Startup");
+    let functions_namespace =
+        read_from_env_or_default(FUNCTIONS_NAMESPACE_ENV_VAR, FUNCTIONS_DEFAULT_NAMESPACE);
 
-    let (functions_namespace, kubernetes_client) = async {
-        tracing::info!("Collecting environment variables.");
+    tracing::info!("Creating kubernetes client.");
 
-        let functions_namespace =
-            read_from_env_or_default(FUNCTIONS_NAMESPACE_ENV_VAR, FUNCTIONS_DEFAULT_NAMESPACE);
-
-        tracing::info!("Creating kubernetes client.");
-
-        let kubernetes_client = match KubeClient::try_default().await {
-            Ok(client) => client,
-            Err(error) => {
-                tracing::error!(%error, "Failed to create kubernetes client. Exiting.");
-                std::process::exit(1);
-            }
-        };
-
-        let check_namespace_span = trace_span!("CheckNamespace", namespace = %functions_namespace);
-
-        async {
-            tracing::info!("Checking if namespace exists.");
-
-            let namespace_api: Api<Namespace> = Api::all(kubernetes_client.clone());
-            match namespace_api.get_opt(&functions_namespace).await {
-                Ok(namespace_opt) => match namespace_opt {
-                    Some(_) => {
-                        tracing::info!("Namespace exists.");
-                    }
-                    None => {
-                        tracing::warn!("Namespace does not exist.");
-                    }
-                },
-                Err(error) => {
-                    tracing::warn!(%error,"Failed to check if namespace exists.");
-                }
-            }
+    let kubernetes_client = match KubeClient::try_default().instrument(span).await {
+        Ok(client) => client,
+        Err(error) => {
+            tracing::error!(%error, "Failed to create kubernetes client. Exiting.");
+            std::process::exit(1);
         }
+    };
+
+    let check_namespace_span = trace_span!("CheckNamespace", namespace = %functions_namespace);
+    check_namespace(kubernetes_client.clone(), &functions_namespace)
         .instrument(check_namespace_span)
         .await;
-
-        (functions_namespace, kubernetes_client)
-    }
-    .instrument(startup_span)
-    .await;
 
     let crd_api: Api<OpenFaaSFunction> = Api::all(kubernetes_client.clone());
 
@@ -237,35 +216,73 @@ async fn main() {
         functions_namespace,
     });
 
-    let controller_span = trace_span!("Controller");
+    (crd_api, deployment_api, service_api, context)
+}
 
-    async {
-        tracing::info!("Starting.");
+async fn check_namespace(kubernetes_client: KubeClient, functions_namespace: &str) {
+    tracing::info!("Checking if namespace exists.");
 
-        let reconcile_span = trace_span!("Reconcile");
-
-        Controller::new(crd_api, Config::default())
-            .owns(deployment_api, Config::default())
-            .owns(service_api, Config::default())
-            .shutdown_on_signal()
-            .run(reconcile, on_error, context)
-            .for_each(|reconciliation_result| async move {
-                match reconciliation_result {
-                    Ok(_) => {
-                        tracing::info!("Reconciliation successful.");
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "Reconciliation failed.");
-                    }
-                }
-            })
-            .instrument(reconcile_span)
-            .await;
-
-        tracing::info!("Terminated.");
+    let namespace_api: Api<Namespace> = Api::all(kubernetes_client);
+    match namespace_api.get_opt(functions_namespace).await {
+        Ok(namespace_opt) => match namespace_opt {
+            Some(_) => {
+                tracing::info!("Namespace exists.");
+            }
+            None => {
+                tracing::warn!("Namespace does not exist.");
+            }
+        },
+        Err(error) => {
+            tracing::warn!(%error,"Failed to check if namespace exists.");
+        }
     }
-    .instrument(controller_span)
-    .await;
+}
+
+async fn run_controller(
+    crd_api: Api<OpenFaaSFunction>,
+    deployment_api: Api<Deployment>,
+    service_api: Api<Service>,
+    context: Arc<ContextData>,
+) {
+    tracing::info!("Starting.");
+
+    let reconcile_span = trace_span!("Reconcile");
+
+    Controller::new(crd_api, Config::default())
+        .owns(deployment_api, Config::default())
+        .owns(service_api, Config::default())
+        .shutdown_on_signal()
+        .run(reconcile, on_error, context)
+        .for_each(|reconciliation_result| async move {
+            match reconciliation_result {
+                Ok(_) => {
+                    tracing::info!("Reconciliation successful.");
+                }
+                Err(error) => {
+                    tracing::error!(%error, "Reconciliation failed.");
+                }
+            }
+        })
+        .instrument(reconcile_span)
+        .await;
+
+    tracing::info!("Terminated.");
+}
+
+#[tokio::main]
+async fn main() {
+    init_tracing();
+    OpenFaaSFunction::write_crds_to_file("crds.yaml");
+
+    let startup_span = trace_span!("Startup");
+    let (crd_api, deployment_api, service_api, context) = start_up(startup_span.clone())
+        .instrument(startup_span)
+        .await;
+
+    let controller_span = trace_span!("Controller");
+    run_controller(crd_api, deployment_api, service_api, context)
+        .instrument(controller_span)
+        .await;
 }
 
 async fn reconcile(
@@ -816,14 +833,19 @@ async fn cleanup(
 ) -> Result<Action, CleanupError> {
     tracing::info!("Cleaning up resource.");
 
+    tracing::info!("Nothing to do here. We use OwnerReferences.");
+
     tracing::info!("Awaiting change.");
+
     Ok(Action::await_change())
 }
 
 fn on_error(
     _openfaas_function: Arc<OpenFaaSFunction>,
-    _error: &ReconcileError,
+    error: &ReconcileError,
     _context: Arc<ContextData>,
 ) -> Action {
+    tracing::error!(%error, "Reconciliation failed. Requeuing.");
+
     Action::requeue(Duration::from_secs(10))
 }
