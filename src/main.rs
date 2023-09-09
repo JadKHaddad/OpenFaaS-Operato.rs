@@ -1,7 +1,7 @@
 use futures::stream::StreamExt;
 use k8s_openapi::api::{
     apps::v1::Deployment,
-    core::v1::{Namespace, Service},
+    core::v1::{Namespace, Secret, Service},
 };
 use kube::{
     api::PostParams,
@@ -510,7 +510,7 @@ async fn check_deployment(
             let deployment_orefs = deployment.owner_references();
 
             if !deployment_orefs.contains(&crd_oref) {
-                tracing::warn!("Deployment does not have owner reference.");
+                tracing::error!("Deployment does not have owner reference.");
 
                 let mut openfaas_function_crd_with_status = api
                     .get_status(name)
@@ -541,6 +541,60 @@ async fn check_deployment(
         None => {
             //TODO: Handle secrets!
             tracing::info!("Deployment does not exist. Creating.");
+
+            let secrets = openfaas_function_crd.spec.get_secrets_vec();
+            if !secrets.is_empty() {
+                let secrets_api: Api<Secret> =
+                    Api::namespaced(context.kubernetes_client.clone(), functions_namespace);
+
+                // TODO: fetch all secrets at once
+                //let existing_secrtes: Vec<Secret> = secrets_api
+                // .list(&ListParams::default())
+                // .await
+                // .map_err(DeploymentError::Kube)?
+                // .into_iter()
+                // .collect();
+
+                for secret in secrets {
+                    let secret_opt = secrets_api
+                        .get_opt(&secret)
+                        .instrument(span.clone())
+                        .await
+                        .map_err(DeploymentError::Get)?;
+
+                    match secret_opt {
+                        Some(_) => {
+                            tracing::info!("Secret {} exists.", secret);
+                        }
+                        None => {
+                            tracing::error!("Secret {} does not exist.", secret);
+
+                            let mut openfaas_function_crd_with_status = api
+                                .get_status(name)
+                                .instrument(span.clone())
+                                .await
+                                .map_err(DeploymentError::Kube)?;
+
+                            replace_status(
+                                api,
+                                &mut openfaas_function_crd_with_status,
+                                name,
+                                OpenFaasFunctionStatus::Err(
+                                    OpenFaasFunctionErrorStatus::SecretsNotFound,
+                                ),
+                                span.clone(),
+                            )
+                            .instrument(span)
+                            .await
+                            .map_err(DeploymentError::Status)?;
+
+                            tracing::info!("Requeueing resource.");
+
+                            return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                        }
+                    }
+                }
+            }
 
             let deployment =
                 Deployment::try_from(openfaas_function_crd).map_err(DeploymentError::Generate)?;
@@ -587,7 +641,7 @@ async fn check_service(
             let service_orefs = service.owner_references();
 
             if !service_orefs.contains(&crd_oref) {
-                tracing::warn!("Service does not have owner reference.");
+                tracing::error!("Service does not have owner reference.");
 
                 let mut openfaas_function_crd_with_status = api
                     .get_status(name)

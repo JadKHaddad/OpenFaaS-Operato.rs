@@ -48,6 +48,10 @@ impl OpenFaasFunctionSpec {
         !self.secrets.as_ref().unwrap_or(&vec![]).is_empty()
     }
 
+    pub fn get_secrets_vec(&self) -> Vec<String> {
+        self.secrets.clone().unwrap_or(vec![])
+    }
+
     fn to_env_process_name(&self) -> String {
         String::from("fprocess")
     }
