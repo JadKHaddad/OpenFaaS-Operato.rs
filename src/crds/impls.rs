@@ -7,7 +7,8 @@ use k8s_openapi::{
         apps::v1::{Deployment, DeploymentSpec},
         core::v1::{
             Container, ContainerPort, EnvVar, HTTPGetAction, PodSpec, PodTemplateSpec, Probe,
-            ResourceRequirements, SecurityContext, Service, ServicePort, ServiceSpec,
+            ResourceRequirements, SecurityContext, Service, ServicePort, ServiceSpec, Volume,
+            VolumeMount,
         },
     },
     apimachinery::pkg::{
@@ -24,6 +25,10 @@ impl OpenFaasFunctionSpec {
 
     pub fn service_diffs(&self, service: &Service) -> Vec<ServiceDiff> {
         unimplemented!()
+    }
+
+    fn should_create_tmp_volume(&self) -> bool {
+        self.read_only_root_filesystem.unwrap_or(false)
     }
 
     fn to_name(&self) -> String {
@@ -117,6 +122,22 @@ impl OpenFaasFunctionSpec {
             }
             requests
         })
+    }
+
+    fn to_tmp_volume(&self) -> Volume {
+        Volume {
+            name: String::from("tmp"),
+            empty_dir: Some(Default::default()),
+            ..Default::default()
+        }
+    }
+
+    fn to_tmp_volume_mount(&self) -> VolumeMount {
+        VolumeMount {
+            name: String::from("tmp"),
+            mount_path: String::from("/tmp"),
+            ..Default::default()
+        }
     }
 }
 
@@ -221,10 +242,34 @@ impl From<&OpenFaasFunctionSpec> for Container {
             liveness_probe: Option::<Probe>::from(value),
             readiness_probe: Option::<Probe>::from(value),
             security_context: Option::<SecurityContext>::from(value),
-            volume_mounts: None, // TODO
+            volume_mounts: Option::<Vec<VolumeMount>>::from(value),
             resources: Option::<ResourceRequirements>::from(value),
             env: Option::<Vec<EnvVar>>::from(value),
             ..Default::default()
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Vec<VolumeMount> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        let mut volume_mounts = Vec::new();
+
+        if value.should_create_tmp_volume() {
+            volume_mounts.push(value.to_tmp_volume_mount());
+        }
+
+        volume_mounts
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Option<Vec<VolumeMount>> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        let volume_mounts = Vec::<VolumeMount>::from(value);
+
+        if volume_mounts.is_empty() {
+            None
+        } else {
+            Some(volume_mounts)
         }
     }
 }
@@ -235,11 +280,35 @@ impl From<&OpenFaasFunctionSpec> for Vec<Container> {
     }
 }
 
+impl From<&OpenFaasFunctionSpec> for Vec<Volume> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        let mut volumes = Vec::new();
+
+        if value.should_create_tmp_volume() {
+            volumes.push(value.to_tmp_volume());
+        }
+
+        volumes
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Option<Vec<Volume>> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        let volumes = Vec::<Volume>::from(value);
+
+        if volumes.is_empty() {
+            None
+        } else {
+            Some(volumes)
+        }
+    }
+}
+
 impl From<&OpenFaasFunctionSpec> for PodSpec {
     fn from(value: &OpenFaasFunctionSpec) -> Self {
         PodSpec {
             containers: Vec::<Container>::from(value),
-            volumes: None, // TODO
+            volumes: Option::<Vec<Volume>>::from(value),
             ..Default::default()
         }
     }

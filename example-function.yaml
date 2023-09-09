@@ -17,4 +17,4 @@ spec:
     envVar: "value"
     envVar2: "value2"
 
-  readOnlyRootFilesystem: false
+  readOnlyRootFilesystem: true

@@ -8,7 +8,7 @@ functions:
     image: ghcr.io/openfaas/nodeinfo:latest
     namespace: openfaas-fn
     env_process: null
-    env_vars:
+    environment:
       VAR: "VALUE"
       VAR2: "VALUE2"
     constraints:
@@ -21,9 +21,9 @@ functions:
       annotation: "value"
       annotation2: "value2"
     limits:
-      cpu: "100m"
+      cpu: "50m"
       memory: "128Mi"
     requests:
-      cpu: "100m"
+      cpu: "50m"
       memory: "128Mi"
-    read_only_root_filesystem: true
+    readonly_root_filesystem: true
