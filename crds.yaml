@@ -99,16 +99,27 @@ spec:
             - service
             type: object
           status:
-            enum:
-            - InvalidCRDNamespace
-            - InvalidFunctionNamespace
-            - DeploymentAlreadyExists
-            - ServiceAlreadyExists
-            - SecretsNotFound
-            - Deployed
-            - Ready
             nullable: true
-            type: string
+            oneOf:
+            - required:
+              - Ok
+            - required:
+              - Err
+            properties:
+              Err:
+                enum:
+                - InvalidCRDNamespace
+                - InvalidFunctionNamespace
+                - DeploymentAlreadyExists
+                - ServiceAlreadyExists
+                - SecretsNotFound
+                type: string
+              Ok:
+                enum:
+                - Deployed
+                - Ready
+                type: string
+            type: object
         required:
         - spec
         title: OpenFaaSFunction

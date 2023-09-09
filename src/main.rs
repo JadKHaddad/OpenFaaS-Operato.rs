@@ -4,7 +4,7 @@ use k8s_openapi::api::{
     core::v1::{Namespace, Secret, Service},
 };
 use kube::{
-    api::PostParams,
+    api::{ListParams, PostParams},
     runtime::{
         controller::Action,
         finalizer::{Error as FinalizerError, Event},
@@ -386,6 +386,7 @@ async fn apply(
         return Ok(action);
     }
 
+    // TODO: set status! deployed or ready!
     // after deploying the deployment and service, set status to deployed
     // if deployment and service are ready, set status to ready
 
@@ -539,62 +540,55 @@ async fn check_deployment(
             // TODO: Compare deployment
         }
         None => {
-            //TODO: Handle secrets!
             tracing::info!("Deployment does not exist. Creating.");
 
+            tracing::info!("Checking if secrets exist.");
             let secrets = openfaas_function_crd.spec.get_secrets_vec();
             if !secrets.is_empty() {
                 let secrets_api: Api<Secret> =
                     Api::namespaced(context.kubernetes_client.clone(), functions_namespace);
 
-                // TODO: fetch all secrets at once
-                //let existing_secrtes: Vec<Secret> = secrets_api
-                // .list(&ListParams::default())
-                // .await
-                // .map_err(DeploymentError::Kube)?
-                // .into_iter()
-                // .collect();
+                let existing_secret_names: Vec<String> = secrets_api
+                    .list(&ListParams::default())
+                    .await
+                    .map_err(DeploymentError::Kube)?
+                    .into_iter()
+                    .map(|secret| secret.metadata.name.unwrap_or_default())
+                    .collect();
 
-                for secret in secrets {
-                    let secret_opt = secrets_api
-                        .get_opt(&secret)
+                let not_found_secret_names: Vec<String> = secrets
+                    .iter()
+                    .filter(|secret| !existing_secret_names.contains(secret))
+                    .cloned()
+                    .collect();
+
+                if !not_found_secret_names.is_empty() {
+                    let not_found_secret_names_str = not_found_secret_names.join(", ");
+                    tracing::error!("Secrets {} do not exist.", not_found_secret_names_str);
+
+                    let mut openfaas_function_crd_with_status = api
+                        .get_status(name)
                         .instrument(span.clone())
                         .await
-                        .map_err(DeploymentError::Get)?;
+                        .map_err(DeploymentError::Kube)?;
 
-                    match secret_opt {
-                        Some(_) => {
-                            tracing::info!("Secret {} exists.", secret);
-                        }
-                        None => {
-                            tracing::error!("Secret {} does not exist.", secret);
+                    replace_status(
+                        api,
+                        &mut openfaas_function_crd_with_status,
+                        name,
+                        OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::SecretsNotFound),
+                        span.clone(),
+                    )
+                    .instrument(span)
+                    .await
+                    .map_err(DeploymentError::Status)?;
 
-                            let mut openfaas_function_crd_with_status = api
-                                .get_status(name)
-                                .instrument(span.clone())
-                                .await
-                                .map_err(DeploymentError::Kube)?;
+                    tracing::info!("Requeueing resource.");
 
-                            replace_status(
-                                api,
-                                &mut openfaas_function_crd_with_status,
-                                name,
-                                OpenFaasFunctionStatus::Err(
-                                    OpenFaasFunctionErrorStatus::SecretsNotFound,
-                                ),
-                                span.clone(),
-                            )
-                            .instrument(span)
-                            .await
-                            .map_err(DeploymentError::Status)?;
-
-                            tracing::info!("Requeueing resource.");
-
-                            return Ok(Some(Action::requeue(Duration::from_secs(10))));
-                        }
-                    }
+                    return Ok(Some(Action::requeue(Duration::from_secs(10))));
                 }
             }
+            tracing::info!("Secrets exist.");
 
             let deployment =
                 Deployment::try_from(openfaas_function_crd).map_err(DeploymentError::Generate)?;
