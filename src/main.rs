@@ -1,3 +1,4 @@
+use anyhow::Result as AnyResult;
 use futures::stream::StreamExt;
 use k8s_openapi::api::{
     apps::v1::Deployment,
@@ -178,12 +179,15 @@ fn read_from_env_or_default(env_var: &str, default: &str) -> String {
 
 async fn start_up(
     span: Span,
-) -> (
-    Api<OpenFaaSFunction>,
-    Api<Deployment>,
-    Api<Service>,
-    Arc<ContextData>,
-) {
+) -> Result<
+    (
+        Api<OpenFaaSFunction>,
+        Api<Deployment>,
+        Api<Service>,
+        Arc<ContextData>,
+    ),
+    KubeError,
+> {
     tracing::info!("Collecting environment variables.");
 
     let functions_namespace =
@@ -191,13 +195,7 @@ async fn start_up(
 
     tracing::info!("Creating kubernetes client.");
 
-    let kubernetes_client = match KubeClient::try_default().instrument(span).await {
-        Ok(client) => client,
-        Err(error) => {
-            tracing::error!(%error, "Failed to create kubernetes client. Exiting.");
-            std::process::exit(1);
-        }
-    };
+    let kubernetes_client = KubeClient::try_default().instrument(span).await?;
 
     let check_namespace_span = trace_span!("CheckNamespace", namespace = %functions_namespace);
     check_namespace(kubernetes_client.clone(), &functions_namespace)
@@ -216,7 +214,7 @@ async fn start_up(
         functions_namespace,
     });
 
-    (crd_api, deployment_api, service_api, context)
+    Ok((crd_api, deployment_api, service_api, context))
 }
 
 async fn check_namespace(kubernetes_client: KubeClient, functions_namespace: &str) {
@@ -270,19 +268,25 @@ async fn run_controller(
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> AnyResult<()> {
     init_tracing();
     OpenFaaSFunction::write_crds_to_file("crds.yaml");
 
     let startup_span = trace_span!("Startup");
     let (crd_api, deployment_api, service_api, context) = start_up(startup_span.clone())
         .instrument(startup_span)
-        .await;
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "Failed to create kubernetes client. Exiting.");
+            error
+        })?;
 
     let controller_span = trace_span!("Controller");
     run_controller(crd_api, deployment_api, service_api, context)
         .instrument(controller_span)
         .await;
+
+    Ok(())
 }
 
 async fn reconcile(
@@ -818,9 +822,11 @@ async fn replace_status(
                 error: SetStatusError::Kube(error),
                 status: status.clone(),
             })?;
+
             tracing::info!("Status set to {:?}.", status);
         }
     }
+
     Ok(())
 }
 
