@@ -17,7 +17,7 @@ use openfaas_operato_rs::{
     consts::*,
     crds::defs::{
         IntoDeploymentError, IntoServiceError, OpenFaaSFunction, OpenFaasFunctionErrorStatus,
-        OpenFaasFunctionStatus, FINALIZER_NAME,
+        OpenFaasFunctionOkStatus, OpenFaasFunctionStatus, FINALIZER_NAME,
     },
 };
 use std::sync::Arc;
@@ -69,8 +69,8 @@ enum ApplyError {
     Deployment(#[source] DeploymentError),
     #[error("Service error: {0}")]
     Service(#[source] ServiceError),
-    #[error("Failed to set status: {0}")]
-    SetStatus(#[source] SetStatusError),
+    #[error("Status error: {0}")]
+    Status(#[source] DeployedStatusError),
 }
 
 #[derive(ThisError, Debug)]
@@ -143,6 +143,14 @@ enum ServiceError {
     Generate(#[source] IntoServiceError),
     #[error("Failed to apply service: {0}")]
     Apply(#[source] KubeError),
+    #[error(transparent)]
+    Status(StatusError),
+}
+
+#[derive(ThisError, Debug)]
+enum DeployedStatusError {
+    #[error("Kubernetes error: {0}")]
+    Kube(#[source] KubeError),
     #[error(transparent)]
     Status(StatusError),
 }
@@ -398,8 +406,8 @@ async fn apply(
         return Ok(action);
     }
 
-    let set_status_span = trace_span!("SetStatus");
-    if let Some(action) = set_status(
+    let set_status_span = trace_span!("SetDeployedStatus");
+    if let Some(action) = set_deployed_status(
         &api,
         &context,
         &openfaas_function_crd,
@@ -409,14 +417,14 @@ async fn apply(
     )
     .instrument(set_status_span)
     .await
-    .map_err(ApplyError::SetStatus)?
+    .map_err(ApplyError::Status)?
     {
         return Ok(action);
     }
 
-    tracing::info!("Requeueing resource.");
+    tracing::info!("Awaiting change.");
 
-    Ok(Action::requeue(Duration::from_secs(15)))
+    Ok(Action::await_change())
 }
 
 async fn check_resource_namespace(
@@ -732,19 +740,32 @@ async fn check_service(
     Ok(None)
 }
 
-async fn set_status(
+async fn set_deployed_status(
     api: &Api<OpenFaaSFunction>,
-    context: &ContextData,
-    openfaas_function_crd: &OpenFaaSFunction,
+    _context: &ContextData,
+    _openfaas_function_crd: &OpenFaaSFunction,
     name: &str,
-    functions_namespace: &str,
+    _functions_namespace: &str,
     span: Span,
-) -> Result<Option<Action>, SetStatusError> {
+) -> Result<Option<Action>, DeployedStatusError> {
     tracing::info!("Setting status.");
 
-    // TODO: set status! deployed or ready!
-    // after deploying the deployment and service, set status to deployed
-    // if deployment and service are ready, set status to ready
+    let mut openfaas_function_crd_with_status = api
+        .get_status(name)
+        .instrument(span.clone())
+        .await
+        .map_err(DeployedStatusError::Kube)?;
+
+    replace_status(
+        api,
+        &mut openfaas_function_crd_with_status,
+        name,
+        OpenFaasFunctionStatus::Ok(OpenFaasFunctionOkStatus::Deployed),
+        span.clone(),
+    )
+    .instrument(span)
+    .await
+    .map_err(DeployedStatusError::Status)?;
 
     Ok(None)
 }
