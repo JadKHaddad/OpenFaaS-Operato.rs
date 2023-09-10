@@ -49,6 +49,140 @@ impl ContextData {
         }
     }
 
+    async fn reconcile(&self, crd: Arc<OpenFaaSFunction>) -> Result<Action, ReconcileError> {
+        let name = crd.name_any();
+
+        let Some(crd_namespace) = crd.namespace() else {
+            tracing::error!(%name, "Resource has no namespace. Aborting.");
+            return Err(ReconcileError::Namespace);
+        };
+
+        let reconcile_resource_span = trace_span!("ReconcileResource", %name, %crd_namespace);
+
+        let api = self.api.clone();
+
+        finalizer(&api, FINALIZER_NAME, crd, |event| async move {
+            match event {
+                Event::Apply(crd) => {
+                    let apply_resource_span = trace_span!("ApplyResource");
+
+                    self.apply(crd, &crd_namespace)
+                        .instrument(apply_resource_span)
+                        .await
+                        .map_err(FinalizeError::Apply)
+                }
+                Event::Cleanup(crd) => {
+                    let cleanup_resource_span = trace_span!("CleanupResource");
+
+                    self.cleanup(crd, &crd_namespace)
+                        .instrument(cleanup_resource_span)
+                        .await
+                        .map_err(FinalizeError::Cleanup)
+                }
+            }
+        })
+        .instrument(reconcile_resource_span)
+        .await
+        .map_err(ReconcileError::FinalizeError)
+    }
+
+    async fn apply(
+        &self,
+        crd: Arc<OpenFaaSFunction>,
+        crd_namespace: &str,
+    ) -> Result<Action, ApplyError> {
+        tracing::info!("Applying resource.");
+        let functions_namespace = &self.functions_namespace;
+
+        let check_res_namespace_span = trace_span!("CheckResourceNamespace", %functions_namespace);
+
+        if let Some(action) = self
+            .check_resource_namespace(&crd, crd_namespace, check_res_namespace_span.clone())
+            .instrument(check_res_namespace_span)
+            .await
+            .map_err(ApplyError::ResourceNamespace)?
+        {
+            return Ok(action);
+        }
+
+        let check_fun_namespace_span = trace_span!("CheckFunctionNamespace", %functions_namespace);
+
+        if let Some(action) = self
+            .check_function_namespace(&crd, check_fun_namespace_span.clone())
+            .instrument(check_fun_namespace_span)
+            .await
+            .map_err(ApplyError::FunctionNamespace)?
+        {
+            return Ok(action);
+        }
+
+        // let check_deployment_span = trace_span!("CheckDeployment");
+        // if let Some(action) = check_deployment(
+        //     &api,
+        //     &context,
+        //     &openfaas_function_crd,
+        //     name,
+        //     functions_namespace,
+        //     check_deployment_span.clone(),
+        // )
+        // .instrument(check_deployment_span)
+        // .await
+        // .map_err(ApplyError::Deployment)?
+        // {
+        //     return Ok(action);
+        // }
+
+        // let check_service_span = trace_span!("CheckService");
+        // if let Some(action) = check_service(
+        //     &api,
+        //     &context,
+        //     &openfaas_function_crd,
+        //     name,
+        //     functions_namespace,
+        //     check_service_span.clone(),
+        // )
+        // .instrument(check_service_span)
+        // .await
+        // .map_err(ApplyError::Service)?
+        // {
+        //     return Ok(action);
+        // }
+
+        // let set_status_span = trace_span!("SetDeployedStatus");
+        // if let Some(action) = set_deployed_status(
+        //     &api,
+        //     &context,
+        //     &openfaas_function_crd,
+        //     name,
+        //     functions_namespace,
+        //     set_status_span.clone(),
+        // )
+        // .instrument(set_status_span)
+        // .await
+        // .map_err(ApplyError::Status)?
+        // {
+        //     return Ok(action);
+        // }
+
+        // tracing::info!("Awaiting change.");
+
+        Ok(Action::await_change())
+    }
+
+    async fn cleanup(
+        &self,
+        _crd: Arc<OpenFaaSFunction>,
+        _crd_namespace: &str,
+    ) -> Result<Action, CleanupError> {
+        tracing::info!("Cleaning up resource.");
+
+        tracing::info!("Nothing to do here. We use OwnerReferences.");
+
+        tracing::info!("Awaiting change.");
+
+        Ok(Action::await_change())
+    }
+
     async fn replace_status(
         &self,
         crd_with_status: &mut OpenFaaSFunction,
@@ -219,137 +353,7 @@ async fn reconcile(
     crd: Arc<OpenFaaSFunction>,
     context: Arc<ContextData>,
 ) -> Result<Action, ReconcileError> {
-    let name = crd.name_any();
-
-    let Some(crd_namespace) = crd.namespace() else {
-        tracing::error!(%name, "Resource has no namespace. Aborting.");
-        return Err(ReconcileError::Namespace);
-    };
-
-    let reconcile_resource_span = trace_span!("ReconcileResource", %name, %crd_namespace);
-
-    let api = context.api.clone();
-
-    finalizer(&api, FINALIZER_NAME, crd, |event| async move {
-        match event {
-            Event::Apply(crd) => {
-                let apply_resource_span = trace_span!("ApplyResource");
-
-                apply(context, crd, &crd_namespace)
-                    .instrument(apply_resource_span)
-                    .await
-                    .map_err(FinalizeError::Apply)
-            }
-            Event::Cleanup(crd) => {
-                let cleanup_resource_span = trace_span!("CleanupResource");
-
-                cleanup(context, crd, &crd_namespace)
-                    .instrument(cleanup_resource_span)
-                    .await
-                    .map_err(FinalizeError::Cleanup)
-            }
-        }
-    })
-    .instrument(reconcile_resource_span)
-    .await
-    .map_err(ReconcileError::FinalizeError)
-}
-
-async fn apply(
-    context: Arc<ContextData>,
-    crd: Arc<OpenFaaSFunction>,
-    crd_namespace: &str,
-) -> Result<Action, ApplyError> {
-    tracing::info!("Applying resource.");
-    let functions_namespace = &context.functions_namespace;
-
-    let check_res_namespace_span = trace_span!("CheckResourceNamespace", %functions_namespace);
-
-    if let Some(action) = context
-        .check_resource_namespace(&crd, crd_namespace, check_res_namespace_span.clone())
-        .instrument(check_res_namespace_span)
-        .await
-        .map_err(ApplyError::ResourceNamespace)?
-    {
-        return Ok(action);
-    }
-
-    let check_fun_namespace_span = trace_span!("CheckFunctionNamespace", %functions_namespace);
-
-    if let Some(action) = context
-        .check_function_namespace(&crd, check_fun_namespace_span.clone())
-        .instrument(check_fun_namespace_span)
-        .await
-        .map_err(ApplyError::FunctionNamespace)?
-    {
-        return Ok(action);
-    }
-
-    // let check_deployment_span = trace_span!("CheckDeployment");
-    // if let Some(action) = check_deployment(
-    //     &api,
-    //     &context,
-    //     &openfaas_function_crd,
-    //     name,
-    //     functions_namespace,
-    //     check_deployment_span.clone(),
-    // )
-    // .instrument(check_deployment_span)
-    // .await
-    // .map_err(ApplyError::Deployment)?
-    // {
-    //     return Ok(action);
-    // }
-
-    // let check_service_span = trace_span!("CheckService");
-    // if let Some(action) = check_service(
-    //     &api,
-    //     &context,
-    //     &openfaas_function_crd,
-    //     name,
-    //     functions_namespace,
-    //     check_service_span.clone(),
-    // )
-    // .instrument(check_service_span)
-    // .await
-    // .map_err(ApplyError::Service)?
-    // {
-    //     return Ok(action);
-    // }
-
-    // let set_status_span = trace_span!("SetDeployedStatus");
-    // if let Some(action) = set_deployed_status(
-    //     &api,
-    //     &context,
-    //     &openfaas_function_crd,
-    //     name,
-    //     functions_namespace,
-    //     set_status_span.clone(),
-    // )
-    // .instrument(set_status_span)
-    // .await
-    // .map_err(ApplyError::Status)?
-    // {
-    //     return Ok(action);
-    // }
-
-    // tracing::info!("Awaiting change.");
-
-    Ok(Action::await_change())
-}
-
-async fn cleanup(
-    _context: Arc<ContextData>,
-    _crd: Arc<OpenFaaSFunction>,
-    _crd_namespace: &str,
-) -> Result<Action, CleanupError> {
-    tracing::info!("Cleaning up resource.");
-
-    tracing::info!("Nothing to do here. We use OwnerReferences.");
-
-    tracing::info!("Awaiting change.");
-
-    Ok(Action::await_change())
+    context.reconcile(crd).await
 }
 
 fn on_error(
