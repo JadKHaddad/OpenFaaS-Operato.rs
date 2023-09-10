@@ -1,5 +1,4 @@
 use crate::controller::errors::*;
-use crate::crds;
 use crate::crds::defs::{
     OpenFaaSFunction, OpenFaasFunctionErrorStatus, OpenFaasFunctionOkStatus,
     OpenFaasFunctionStatus, FINALIZER_NAME,
@@ -13,17 +12,13 @@ use kube::{
     api::{ListParams, PostParams},
     runtime::{controller::Action, finalizer::Event, watcher::Config},
     runtime::{finalizer, Controller},
-    Api, Resource, ResourceExt,
+    Api, Client as KubeClient, Resource, ResourceExt,
 };
 use std::sync::Arc;
 use tokio::time::Duration;
 use tracing::{trace_span, Instrument, Span};
 
-use kube::Client as KubeClient;
-
-use super::context;
-
-pub struct ContextData {
+struct OperatorInner {
     kubernetes_client: KubeClient,
     functions_namespace: String,
     api: Api<OpenFaaSFunction>,
@@ -32,8 +27,8 @@ pub struct ContextData {
     secrets_api: Api<Secret>,
 }
 
-impl ContextData {
-    pub fn new(kubernetes_client: KubeClient, functions_namespace: String) -> Self {
+impl OperatorInner {
+    fn new(kubernetes_client: KubeClient, functions_namespace: String) -> Self {
         let api: Api<OpenFaaSFunction> =
             Api::namespaced(kubernetes_client.clone(), &functions_namespace);
         let deployment_api: Api<Deployment> =
@@ -96,10 +91,10 @@ impl ContextData {
         crd_namespace: &str,
     ) -> Result<Action, ApplyError> {
         tracing::info!("Applying resource.");
+
         let functions_namespace = &self.functions_namespace;
 
         let check_res_namespace_span = trace_span!("CheckResourceNamespace", %functions_namespace);
-
         if let Some(action) = self
             .check_resource_namespace(&crd, crd_namespace, check_res_namespace_span.clone())
             .instrument(check_res_namespace_span)
@@ -110,7 +105,6 @@ impl ContextData {
         }
 
         let check_fun_namespace_span = trace_span!("CheckFunctionNamespace", %functions_namespace);
-
         if let Some(action) = self
             .check_function_namespace(&crd, check_fun_namespace_span.clone())
             .instrument(check_fun_namespace_span)
@@ -140,23 +134,17 @@ impl ContextData {
             return Ok(action);
         }
 
-        // let set_status_span = trace_span!("SetDeployedStatus");
-        // if let Some(action) = set_deployed_status(
-        //     &api,
-        //     &context,
-        //     &openfaas_function_crd,
-        //     name,
-        //     functions_namespace,
-        //     set_status_span.clone(),
-        // )
-        // .instrument(set_status_span)
-        // .await
-        // .map_err(ApplyError::Status)?
-        // {
-        //     return Ok(action);
-        // }
+        let set_status_span = trace_span!("SetDeployedStatus");
+        if let Some(action) = self
+            .set_deployed_status(&crd, set_status_span.clone())
+            .instrument(set_status_span)
+            .await
+            .map_err(ApplyError::Status)?
+        {
+            return Ok(action);
+        }
 
-        // tracing::info!("Awaiting change.");
+        tracing::info!("Awaiting change.");
 
         Ok(Action::await_change())
     }
@@ -501,33 +489,59 @@ impl ContextData {
 
         Ok(None)
     }
+
+    async fn set_deployed_status(
+        &self,
+        crd: &OpenFaaSFunction,
+        span: Span,
+    ) -> Result<Option<Action>, DeployedStatusError> {
+        tracing::info!("Setting status.");
+
+        let name = crd.name_any();
+        let api = &self.api;
+
+        let mut crd_with_status = api
+            .get_status(&name)
+            .instrument(span.clone())
+            .await
+            .map_err(DeployedStatusError::Kube)?;
+
+        let status = OpenFaasFunctionStatus::Ok(OpenFaasFunctionOkStatus::Deployed);
+
+        self.replace_status(&mut crd_with_status, status, span.clone())
+            .instrument(span)
+            .await
+            .map_err(DeployedStatusError::Status)?;
+
+        Ok(None)
+    }
 }
 
 pub struct Operator {
-    context: Arc<ContextData>,
+    inner: Arc<OperatorInner>,
 }
 
 impl Operator {
-    pub fn new(kubernetes_client: KubeClient, functions_namespace: String) -> Self {
-        let context = Arc::new(ContextData::new(kubernetes_client, functions_namespace));
+    pub fn new(client: KubeClient, functions_namespace: String) -> Self {
+        let inner = Arc::new(OperatorInner::new(client, functions_namespace));
 
-        Self { context }
+        Self { inner }
     }
 
-    async fn run(self) {
+    pub async fn run(self) {
         tracing::info!("Controller starting.");
 
         let reconcile_span = trace_span!("Reconcile");
 
-        let api = self.context.api.clone();
-        let deployment_api = self.context.deployment_api.clone();
-        let service_api = self.context.service_api.clone();
+        let api = self.inner.api.clone();
+        let deployment_api = self.inner.deployment_api.clone();
+        let service_api = self.inner.service_api.clone();
 
         Controller::new(api, Config::default())
             .owns(deployment_api, Config::default())
             .owns(service_api, Config::default())
             .shutdown_on_signal()
-            .run(reconcile, on_error, self.context)
+            .run(reconcile, on_error, self.inner)
             .for_each(|reconciliation_result| async move {
                 match reconciliation_result {
                     Ok(_) => {
@@ -547,7 +561,7 @@ impl Operator {
 
 async fn reconcile(
     crd: Arc<OpenFaaSFunction>,
-    context: Arc<ContextData>,
+    context: Arc<OperatorInner>,
 ) -> Result<Action, ReconcileError> {
     context.reconcile(crd).await
 }
@@ -555,7 +569,7 @@ async fn reconcile(
 fn on_error(
     _openfaas_function: Arc<OpenFaaSFunction>,
     error: &ReconcileError,
-    _context: Arc<ContextData>,
+    _context: Arc<OperatorInner>,
 ) -> Action {
     tracing::error!(%error, "Reconciliation failed. Requeuing.");
 
