@@ -56,28 +56,22 @@ impl OperatorInner {
             return Err(ReconcileError::Namespace);
         };
 
-        let reconcile_resource_span = trace_span!("ReconcileResource", %name, %crd_namespace);
-
         let api = self.api.clone();
 
+        let reconcile_resource_span = trace_span!("ReconcileResource", %name, %crd_namespace);
         finalizer(&api, FINALIZER_NAME, crd, |event| async move {
             match event {
-                Event::Apply(crd) => {
-                    let apply_resource_span = trace_span!("ApplyResource");
+                Event::Apply(crd) => self
+                    .apply(crd, &crd_namespace)
+                    .instrument(trace_span!("ApplyResource"))
+                    .await
+                    .map_err(FinalizeError::Apply),
 
-                    self.apply(crd, &crd_namespace)
-                        .instrument(apply_resource_span)
-                        .await
-                        .map_err(FinalizeError::Apply)
-                }
-                Event::Cleanup(crd) => {
-                    let cleanup_resource_span = trace_span!("CleanupResource");
-
-                    self.cleanup(crd, &crd_namespace)
-                        .instrument(cleanup_resource_span)
-                        .await
-                        .map_err(FinalizeError::Cleanup)
-                }
+                Event::Cleanup(crd) => self
+                    .cleanup(crd, &crd_namespace)
+                    .instrument(trace_span!("CleanupResource"))
+                    .await
+                    .map_err(FinalizeError::Cleanup),
             }
         })
         .instrument(reconcile_resource_span)
@@ -94,50 +88,45 @@ impl OperatorInner {
 
         let functions_namespace = &self.functions_namespace;
 
-        let check_res_namespace_span = trace_span!("CheckResourceNamespace", %functions_namespace);
         if let Some(action) = self
             .check_resource_namespace(&crd, crd_namespace)
-            .instrument(check_res_namespace_span)
+            .instrument(trace_span!("CheckResourceNamespace", %functions_namespace))
             .await
             .map_err(ApplyError::ResourceNamespace)?
         {
             return Ok(action);
         }
 
-        let check_fun_namespace_span = trace_span!("CheckFunctionNamespace", %functions_namespace);
         if let Some(action) = self
             .check_function_namespace(&crd)
-            .instrument(check_fun_namespace_span)
+            .instrument(trace_span!("CheckFunctionNamespace", %functions_namespace))
             .await
             .map_err(ApplyError::FunctionNamespace)?
         {
             return Ok(action);
         }
 
-        let check_deployment_span = trace_span!("CheckDeployment");
         if let Some(action) = self
             .check_deployment(&crd)
-            .instrument(check_deployment_span)
+            .instrument(trace_span!("CheckDeployment"))
             .await
             .map_err(ApplyError::Deployment)?
         {
             return Ok(action);
         }
 
-        let check_service_span = trace_span!("CheckService");
         if let Some(action) = self
             .check_service(&crd)
-            .instrument(check_service_span)
+            .instrument(trace_span!("CheckService"))
             .await
             .map_err(ApplyError::Service)?
         {
             return Ok(action);
         }
 
-        let set_status_span = trace_span!("SetDeployedStatus");
         if let Some(action) = self
             .set_deployed_status(&crd)
-            .instrument(set_status_span)
+            .instrument(trace_span!("SetDeployedStatus"))
             .await
             .map_err(ApplyError::Status)?
         {
@@ -328,10 +317,9 @@ impl OperatorInner {
             None => {
                 tracing::info!("Deployment does not exist. Creating.");
 
-                let check_secrets_span = trace_span!("CheckSecrets");
                 if let Some(action) = self
                     .check_secrets(crd)
-                    .instrument(check_secrets_span)
+                    .instrument(trace_span!("CheckSecrets"))
                     .await
                     .map_err(DeploymentError::Secrets)?
                 {
