@@ -16,7 +16,7 @@ use kube::{
 };
 use std::sync::Arc;
 use tokio::time::Duration;
-use tracing::{trace_span, Instrument, Span};
+use tracing::{trace_span, Instrument};
 
 struct OperatorInner {
     kubernetes_client: KubeClient,
@@ -96,7 +96,7 @@ impl OperatorInner {
 
         let check_res_namespace_span = trace_span!("CheckResourceNamespace", %functions_namespace);
         if let Some(action) = self
-            .check_resource_namespace(&crd, crd_namespace, check_res_namespace_span.clone())
+            .check_resource_namespace(&crd, crd_namespace)
             .instrument(check_res_namespace_span)
             .await
             .map_err(ApplyError::ResourceNamespace)?
@@ -106,7 +106,7 @@ impl OperatorInner {
 
         let check_fun_namespace_span = trace_span!("CheckFunctionNamespace", %functions_namespace);
         if let Some(action) = self
-            .check_function_namespace(&crd, check_fun_namespace_span.clone())
+            .check_function_namespace(&crd)
             .instrument(check_fun_namespace_span)
             .await
             .map_err(ApplyError::FunctionNamespace)?
@@ -116,7 +116,7 @@ impl OperatorInner {
 
         let check_deployment_span = trace_span!("CheckDeployment");
         if let Some(action) = self
-            .check_deployment(&crd, check_deployment_span.clone())
+            .check_deployment(&crd)
             .instrument(check_deployment_span)
             .await
             .map_err(ApplyError::Deployment)?
@@ -126,7 +126,7 @@ impl OperatorInner {
 
         let check_service_span = trace_span!("CheckService");
         if let Some(action) = self
-            .check_service(&crd, check_service_span.clone())
+            .check_service(&crd)
             .instrument(check_service_span)
             .await
             .map_err(ApplyError::Service)?
@@ -136,7 +136,7 @@ impl OperatorInner {
 
         let set_status_span = trace_span!("SetDeployedStatus");
         if let Some(action) = self
-            .set_deployed_status(&crd, set_status_span.clone())
+            .set_deployed_status(&crd)
             .instrument(set_status_span)
             .await
             .map_err(ApplyError::Status)?
@@ -167,7 +167,6 @@ impl OperatorInner {
         &self,
         crd_with_status: &mut OpenFaaSFunction,
         status: OpenFaasFunctionStatus,
-        span: Span,
     ) -> Result<(), StatusError> {
         let name = crd_with_status.name_any();
         let api = &self.api;
@@ -188,7 +187,6 @@ impl OperatorInner {
                         status: status.clone(),
                     })?,
                 )
-                .instrument(span)
                 .await
                 .map_err(|error| StatusError {
                     error: SetStatusError::Kube(error),
@@ -206,7 +204,6 @@ impl OperatorInner {
         &self,
         crd: &OpenFaaSFunction,
         crd_namespace: &str,
-        span: Span,
     ) -> Result<Option<Action>, CheckResourceNamespaceError> {
         tracing::info!("Comparing resource's namespace to functions namespace.");
 
@@ -225,8 +222,7 @@ impl OperatorInner {
             let status =
                 OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::InvalidCRDNamespace);
 
-            self.replace_status(&mut crd_with_status, status, span.clone())
-                .instrument(span)
+            self.replace_status(&mut crd_with_status, status)
                 .await
                 .map_err(CheckResourceNamespaceError::Status)?;
 
@@ -241,7 +237,6 @@ impl OperatorInner {
     async fn check_function_namespace(
         &self,
         crd: &OpenFaaSFunction,
-        span: Span,
     ) -> Result<Option<Action>, CheckFunctionNamespaceError> {
         tracing::info!("Comparing functions's namespace to functions namespace.");
 
@@ -263,7 +258,6 @@ impl OperatorInner {
 
                     let mut crd_with_status = api
                         .get_status(&name)
-                        .instrument(span.clone())
                         .await
                         .map_err(CheckFunctionNamespaceError::Kube)?;
 
@@ -271,8 +265,7 @@ impl OperatorInner {
                         OpenFaasFunctionErrorStatus::InvalidFunctionNamespace,
                     );
 
-                    self.replace_status(&mut crd_with_status, status, span.clone())
-                        .instrument(span)
+                    self.replace_status(&mut crd_with_status, status)
                         .await
                         .map_err(CheckFunctionNamespaceError::Status)?;
 
@@ -289,7 +282,6 @@ impl OperatorInner {
     async fn check_deployment(
         &self,
         crd: &OpenFaaSFunction,
-        span: Span,
     ) -> Result<Option<Action>, DeploymentError> {
         tracing::info!("Checking if deployment exists.");
 
@@ -299,7 +291,6 @@ impl OperatorInner {
 
         let deployment_opt = deployment_api
             .get_opt(&name)
-            .instrument(span.clone())
             .await
             .map_err(DeploymentError::Get)?;
 
@@ -316,18 +307,14 @@ impl OperatorInner {
                 if !deployment_orefs.contains(&crd_oref) {
                     tracing::error!("Deployment does not have owner reference.");
 
-                    let mut crd_with_status = api
-                        .get_status(&name)
-                        .instrument(span.clone())
-                        .await
-                        .map_err(DeploymentError::Kube)?;
+                    let mut crd_with_status =
+                        api.get_status(&name).await.map_err(DeploymentError::Kube)?;
 
                     let status = OpenFaasFunctionStatus::Err(
                         OpenFaasFunctionErrorStatus::DeploymentAlreadyExists,
                     );
 
-                    self.replace_status(&mut crd_with_status, status, span.clone())
-                        .instrument(span)
+                    self.replace_status(&mut crd_with_status, status)
                         .await
                         .map_err(DeploymentError::Status)?;
 
@@ -343,7 +330,7 @@ impl OperatorInner {
 
                 let check_secrets_span = trace_span!("CheckSecrets");
                 if let Some(action) = self
-                    .check_secrets(crd, check_secrets_span.clone())
+                    .check_secrets(crd)
                     .instrument(check_secrets_span)
                     .await
                     .map_err(DeploymentError::Secrets)?
@@ -354,7 +341,6 @@ impl OperatorInner {
                 let deployment = Deployment::try_from(crd).map_err(DeploymentError::Generate)?;
                 deployment_api
                     .create(&PostParams::default(), &deployment)
-                    .instrument(span)
                     .await
                     .map_err(DeploymentError::Apply)?;
 
@@ -368,7 +354,6 @@ impl OperatorInner {
     async fn check_secrets(
         &self,
         crd: &OpenFaaSFunction,
-        span: Span,
     ) -> Result<Option<Action>, CheckSecretsError> {
         tracing::info!("Checking if secrets exist.");
 
@@ -398,15 +383,13 @@ impl OperatorInner {
 
                 let mut crd_with_status = api
                     .get_status(&name)
-                    .instrument(span.clone())
                     .await
                     .map_err(CheckSecretsError::Kube)?;
 
                 let status =
                     OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::SecretsNotFound);
 
-                self.replace_status(&mut crd_with_status, status, span.clone())
-                    .instrument(span)
+                self.replace_status(&mut crd_with_status, status)
                     .await
                     .map_err(CheckSecretsError::Status)?;
 
@@ -421,11 +404,7 @@ impl OperatorInner {
         Ok(None)
     }
 
-    async fn check_service(
-        &self,
-        crd: &OpenFaaSFunction,
-        span: Span,
-    ) -> Result<Option<Action>, ServiceError> {
+    async fn check_service(&self, crd: &OpenFaaSFunction) -> Result<Option<Action>, ServiceError> {
         tracing::info!("Checking if service exists.");
 
         let name = crd.name_any();
@@ -434,7 +413,6 @@ impl OperatorInner {
 
         let service_opt = service_api
             .get_opt(&name)
-            .instrument(span.clone())
             .await
             .map_err(ServiceError::Get)?;
 
@@ -451,18 +429,14 @@ impl OperatorInner {
                 if !service_orefs.contains(&crd_oref) {
                     tracing::error!("Service does not have owner reference.");
 
-                    let mut crd_with_status = api
-                        .get_status(&name)
-                        .instrument(span.clone())
-                        .await
-                        .map_err(ServiceError::Kube)?;
+                    let mut crd_with_status =
+                        api.get_status(&name).await.map_err(ServiceError::Kube)?;
 
                     let status = OpenFaasFunctionStatus::Err(
                         OpenFaasFunctionErrorStatus::ServiceAlreadyExists,
                     );
 
-                    self.replace_status(&mut crd_with_status, status, span.clone())
-                        .instrument(span)
+                    self.replace_status(&mut crd_with_status, status)
                         .await
                         .map_err(ServiceError::Status)?;
 
@@ -479,7 +453,6 @@ impl OperatorInner {
 
                 service_api
                     .create(&PostParams::default(), &service)
-                    .instrument(span)
                     .await
                     .map_err(ServiceError::Apply)?;
 
@@ -493,7 +466,6 @@ impl OperatorInner {
     async fn set_deployed_status(
         &self,
         crd: &OpenFaaSFunction,
-        span: Span,
     ) -> Result<Option<Action>, DeployedStatusError> {
         tracing::info!("Setting status.");
 
@@ -502,14 +474,12 @@ impl OperatorInner {
 
         let mut crd_with_status = api
             .get_status(&name)
-            .instrument(span.clone())
             .await
             .map_err(DeployedStatusError::Kube)?;
 
         let status = OpenFaasFunctionStatus::Ok(OpenFaasFunctionOkStatus::Deployed);
 
-        self.replace_status(&mut crd_with_status, status, span.clone())
-            .instrument(span)
+        self.replace_status(&mut crd_with_status, status)
             .await
             .map_err(DeployedStatusError::Status)?;
 
