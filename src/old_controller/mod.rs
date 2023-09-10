@@ -1,6 +1,5 @@
 mod context;
 mod errors;
-mod operator;
 use crate::crds::defs::{
     OpenFaaSFunction, OpenFaasFunctionErrorStatus, OpenFaasFunctionOkStatus,
     OpenFaasFunctionStatus, FINALIZER_NAME,
