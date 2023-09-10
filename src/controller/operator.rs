@@ -486,6 +486,13 @@ impl Operator {
         Self { inner }
     }
 
+    pub fn new_with_check_functions_namespace(
+        client: KubeClient,
+        functions_namespace: String,
+    ) -> Result<Self, ()> {
+        unimplemented!()
+    }
+
     pub async fn run(self) {
         tracing::info!("Controller starting.");
 
