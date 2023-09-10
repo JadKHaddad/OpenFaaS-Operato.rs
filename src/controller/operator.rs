@@ -29,6 +29,7 @@ pub struct ContextData {
     api: Api<OpenFaaSFunction>,
     deployment_api: Api<Deployment>,
     service_api: Api<Service>,
+    secrets_api: Api<Secret>,
 }
 
 impl ContextData {
@@ -39,6 +40,8 @@ impl ContextData {
             Api::namespaced(kubernetes_client.clone(), &functions_namespace);
         let service_api: Api<Service> =
             Api::namespaced(kubernetes_client.clone(), &functions_namespace);
+        let secrets_api: Api<Secret> =
+            Api::namespaced(kubernetes_client.clone(), &functions_namespace);
 
         Self {
             kubernetes_client,
@@ -46,6 +49,7 @@ impl ContextData {
             api,
             deployment_api,
             service_api,
+            secrets_api,
         }
     }
 
@@ -116,37 +120,25 @@ impl ContextData {
             return Ok(action);
         }
 
-        // let check_deployment_span = trace_span!("CheckDeployment");
-        // if let Some(action) = check_deployment(
-        //     &api,
-        //     &context,
-        //     &openfaas_function_crd,
-        //     name,
-        //     functions_namespace,
-        //     check_deployment_span.clone(),
-        // )
-        // .instrument(check_deployment_span)
-        // .await
-        // .map_err(ApplyError::Deployment)?
-        // {
-        //     return Ok(action);
-        // }
+        let check_deployment_span = trace_span!("CheckDeployment");
+        if let Some(action) = self
+            .check_deployment(&crd, check_deployment_span.clone())
+            .instrument(check_deployment_span)
+            .await
+            .map_err(ApplyError::Deployment)?
+        {
+            return Ok(action);
+        }
 
-        // let check_service_span = trace_span!("CheckService");
-        // if let Some(action) = check_service(
-        //     &api,
-        //     &context,
-        //     &openfaas_function_crd,
-        //     name,
-        //     functions_namespace,
-        //     check_service_span.clone(),
-        // )
-        // .instrument(check_service_span)
-        // .await
-        // .map_err(ApplyError::Service)?
-        // {
-        //     return Ok(action);
-        // }
+        let check_service_span = trace_span!("CheckService");
+        if let Some(action) = self
+            .check_service(&crd, check_service_span.clone())
+            .instrument(check_service_span)
+            .await
+            .map_err(ApplyError::Service)?
+        {
+            return Ok(action);
+        }
 
         // let set_status_span = trace_span!("SetDeployedStatus");
         // if let Some(action) = set_deployed_status(
@@ -300,6 +292,210 @@ impl ContextData {
 
                     return Ok(Some(Action::requeue(Duration::from_secs(10))));
                 }
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn check_deployment(
+        &self,
+        crd: &OpenFaaSFunction,
+        span: Span,
+    ) -> Result<Option<Action>, DeploymentError> {
+        tracing::info!("Checking if deployment exists.");
+
+        let name = crd.name_any();
+        let api = &self.api;
+        let deployment_api = &self.deployment_api;
+
+        let deployment_opt = deployment_api
+            .get_opt(&name)
+            .instrument(span.clone())
+            .await
+            .map_err(DeploymentError::Get)?;
+
+        match deployment_opt {
+            Some(deployment) => {
+                tracing::info!("Deployment exists. Comparing.");
+
+                let crd_oref = crd
+                    .controller_owner_ref(&())
+                    .ok_or(DeploymentError::OwnerReference)?;
+
+                let deployment_orefs = deployment.owner_references();
+
+                if !deployment_orefs.contains(&crd_oref) {
+                    tracing::error!("Deployment does not have owner reference.");
+
+                    let mut crd_with_status = api
+                        .get_status(&name)
+                        .instrument(span.clone())
+                        .await
+                        .map_err(DeploymentError::Kube)?;
+
+                    let status = OpenFaasFunctionStatus::Err(
+                        OpenFaasFunctionErrorStatus::DeploymentAlreadyExists,
+                    );
+
+                    self.replace_status(&mut crd_with_status, status, span.clone())
+                        .instrument(span)
+                        .await
+                        .map_err(DeploymentError::Status)?;
+
+                    tracing::info!("Requeueing resource.");
+
+                    return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                }
+
+                // TODO: Compare deployment
+            }
+            None => {
+                tracing::info!("Deployment does not exist. Creating.");
+
+                let check_secrets_span = trace_span!("CheckSecrets");
+                if let Some(action) = self
+                    .check_secrets(crd, check_secrets_span.clone())
+                    .instrument(check_secrets_span)
+                    .await
+                    .map_err(DeploymentError::Secrets)?
+                {
+                    return Ok(Some(action));
+                }
+
+                let deployment = Deployment::try_from(crd).map_err(DeploymentError::Generate)?;
+                deployment_api
+                    .create(&PostParams::default(), &deployment)
+                    .instrument(span)
+                    .await
+                    .map_err(DeploymentError::Apply)?;
+
+                tracing::info!("Deployment created.");
+            }
+        }
+
+        Ok(None)
+    }
+
+    async fn check_secrets(
+        &self,
+        crd: &OpenFaaSFunction,
+        span: Span,
+    ) -> Result<Option<Action>, CheckSecretsError> {
+        tracing::info!("Checking if secrets exist.");
+
+        let secrets = crd.spec.get_secrets_unique_vec();
+        if !secrets.is_empty() {
+            let name = crd.name_any();
+            let api = &self.api;
+            let secrets_api = &self.secrets_api;
+
+            let existing_secret_names: Vec<String> = secrets_api
+                .list(&ListParams::default())
+                .await
+                .map_err(CheckSecretsError::Kube)?
+                .into_iter()
+                .map(|secret| secret.metadata.name.unwrap_or_default())
+                .collect();
+
+            let not_found_secret_names: Vec<String> = secrets
+                .iter()
+                .filter(|secret| !existing_secret_names.contains(secret))
+                .cloned()
+                .collect();
+
+            if !not_found_secret_names.is_empty() {
+                let not_found_secret_names_str = not_found_secret_names.join(", ");
+                tracing::error!("Secret(s) {} do(es) not exist.", not_found_secret_names_str);
+
+                let mut crd_with_status = api
+                    .get_status(&name)
+                    .instrument(span.clone())
+                    .await
+                    .map_err(CheckSecretsError::Kube)?;
+
+                let status =
+                    OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::SecretsNotFound);
+
+                self.replace_status(&mut crd_with_status, status, span.clone())
+                    .instrument(span)
+                    .await
+                    .map_err(CheckSecretsError::Status)?;
+
+                tracing::info!("Requeueing resource.");
+
+                return Ok(Some(Action::requeue(Duration::from_secs(10))));
+            }
+        }
+
+        tracing::info!("Secrets exist.");
+
+        Ok(None)
+    }
+
+    async fn check_service(
+        &self,
+        crd: &OpenFaaSFunction,
+        span: Span,
+    ) -> Result<Option<Action>, ServiceError> {
+        tracing::info!("Checking if service exists.");
+
+        let name = crd.name_any();
+        let api = &self.api;
+        let service_api = &self.service_api;
+
+        let service_opt = service_api
+            .get_opt(&name)
+            .instrument(span.clone())
+            .await
+            .map_err(ServiceError::Get)?;
+
+        match service_opt {
+            Some(service) => {
+                tracing::info!("Service exists. Comparing.");
+
+                let crd_oref = crd
+                    .controller_owner_ref(&())
+                    .ok_or(ServiceError::OwnerReference)?;
+
+                let service_orefs = service.owner_references();
+
+                if !service_orefs.contains(&crd_oref) {
+                    tracing::error!("Service does not have owner reference.");
+
+                    let mut crd_with_status = api
+                        .get_status(&name)
+                        .instrument(span.clone())
+                        .await
+                        .map_err(ServiceError::Kube)?;
+
+                    let status = OpenFaasFunctionStatus::Err(
+                        OpenFaasFunctionErrorStatus::ServiceAlreadyExists,
+                    );
+
+                    self.replace_status(&mut crd_with_status, status, span.clone())
+                        .instrument(span)
+                        .await
+                        .map_err(ServiceError::Status)?;
+
+                    tracing::info!("Requeueing resource.");
+
+                    return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                }
+
+                // TODO: Compare service
+            }
+            None => {
+                tracing::info!("Service does not exist. Creating.");
+                let service = Service::try_from(crd).map_err(ServiceError::Generate)?;
+
+                service_api
+                    .create(&PostParams::default(), &service)
+                    .instrument(span)
+                    .await
+                    .map_err(ServiceError::Apply)?;
+
+                tracing::info!("Service created.");
             }
         }
 
