@@ -1,16 +1,9 @@
 use anyhow::Result as AnyResult;
-use k8s_openapi::api::{
-    apps::v1::Deployment,
-    core::v1::{Namespace, Service},
-};
-use kube::{Api, Client as KubeClient, Error as KubeError};
+use kube::Client as KubeClient;
 use openfaas_operato_rs::{
-    consts::*,
-    controller::{run_controller, ContextData},
-    crds::defs::OpenFaaSFunction,
+    consts::*, controller::operator::Operator, crds::defs::OpenFaaSFunction,
 };
-use std::sync::Arc;
-use tracing::{trace_span, Instrument, Span};
+use tracing::{trace_span, Instrument};
 use tracing_subscriber::EnvFilter;
 
 pub fn init_tracing() {
@@ -38,60 +31,20 @@ fn read_from_env_or_default(env_var: &str, default: &str) -> String {
     })
 }
 
-async fn start_up(
-    span: Span,
-) -> Result<
-    (
-        Api<OpenFaaSFunction>,
-        Api<Deployment>,
-        Api<Service>,
-        Arc<ContextData>,
-    ),
-    KubeError,
-> {
+fn start_up() -> String {
     tracing::info!("Collecting environment variables.");
 
-    let functions_namespace =
-        read_from_env_or_default(FUNCTIONS_NAMESPACE_ENV_VAR, FUNCTIONS_DEFAULT_NAMESPACE);
-
-    tracing::info!("Creating kubernetes client.");
-
-    let kubernetes_client = KubeClient::try_default().instrument(span).await?;
-
-    let check_namespace_span = trace_span!("CheckNamespace", namespace = %functions_namespace);
-    check_namespace(kubernetes_client.clone(), &functions_namespace)
-        .instrument(check_namespace_span)
-        .await;
-
-    let crd_api: Api<OpenFaaSFunction> = Api::all(kubernetes_client.clone());
-
-    let deployment_api: Api<Deployment> =
-        Api::namespaced(kubernetes_client.clone(), &functions_namespace);
-    let service_api: Api<Service> =
-        Api::namespaced(kubernetes_client.clone(), &functions_namespace);
-
-    let context = Arc::new(ContextData::new(kubernetes_client, functions_namespace));
-
-    Ok((crd_api, deployment_api, service_api, context))
+    read_from_env_or_default(FUNCTIONS_NAMESPACE_ENV_VAR, FUNCTIONS_DEFAULT_NAMESPACE)
 }
 
-async fn check_namespace(kubernetes_client: KubeClient, functions_namespace: &str) {
-    tracing::info!("Checking if namespace exists.");
+async fn create_and_run_operator(client: KubeClient, functions_namespace: String) {
+    let span = trace_span!("Create", %functions_namespace);
 
-    let namespace_api: Api<Namespace> = Api::all(kubernetes_client);
-    match namespace_api.get_opt(functions_namespace).await {
-        Ok(namespace_opt) => match namespace_opt {
-            Some(_) => {
-                tracing::info!("Namespace exists.");
-            }
-            None => {
-                tracing::warn!("Namespace does not exist.");
-            }
-        },
-        Err(error) => {
-            tracing::warn!(%error,"Failed to check if namespace exists.");
-        }
-    }
+    let operator = Operator::new_with_check_functions_namespace(client, functions_namespace)
+        .instrument(span)
+        .await;
+
+    operator.run().await;
 }
 
 #[tokio::main]
@@ -99,18 +52,12 @@ async fn main() -> AnyResult<()> {
     init_tracing();
     OpenFaaSFunction::write_crds_to_file("crds.yaml");
 
-    let startup_span = trace_span!("Startup");
-    let (crd_api, deployment_api, service_api, context) = start_up(startup_span.clone())
-        .instrument(startup_span)
-        .await
-        .map_err(|error| {
-            tracing::error!(%error, "Failed to create kubernetes client. Exiting.");
-            error
-        })?;
+    let functions_namespace = start_up();
 
-    let controller_span = trace_span!("Controller");
-    run_controller(crd_api, deployment_api, service_api, context)
-        .instrument(controller_span)
+    let client = KubeClient::try_default().await?;
+
+    create_and_run_operator(client, functions_namespace)
+        .instrument(trace_span!("Operator"))
         .await;
 
     Ok(())

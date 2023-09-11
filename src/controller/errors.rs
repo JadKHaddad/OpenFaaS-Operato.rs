@@ -26,18 +26,18 @@ pub enum ApplyError {
 
 #[derive(ThisError, Debug)]
 pub enum CheckResourceNamespaceError {
-    #[error("Kubernetes error: {0}")]
-    Kube(#[source] KubeError),
-    #[error(transparent)]
-    Status(StatusError),
+    #[error("Error getting status: {0}")]
+    GetStatus(#[source] KubeError),
+    #[error("Error setting status: {0}")]
+    SetStatus(#[source] StatusError),
 }
 
 #[derive(ThisError, Debug)]
 pub enum CheckFunctionNamespaceError {
-    #[error("Kubernetes error: {0}")]
-    Kube(#[source] KubeError),
-    #[error(transparent)]
-    Status(StatusError),
+    #[error("Error getting status: {0}")]
+    GetStatus(#[source] KubeError),
+    #[error("Error setting status: {0}")]
+    SetStatus(#[source] StatusError),
 }
 
 #[derive(ThisError, Debug)]
@@ -58,16 +58,16 @@ pub enum SetStatusError {
 
 #[derive(ThisError, Debug)]
 pub enum CheckSecretsError {
-    #[error("Kubernetes error: {0}")]
-    Kube(#[source] KubeError),
-    #[error(transparent)]
-    Status(StatusError),
+    #[error("Error listing secrets: {0}")]
+    List(#[source] KubeError),
+    #[error("Error setting status: {0}")]
+    SetStatus(#[source] StatusError),
 }
 
 #[derive(ThisError, Debug)]
 pub enum DeploymentError {
-    #[error("Kubernetes error: {0}")]
-    Kube(#[source] KubeError),
+    #[error("Error getting status: {0}")]
+    GetStatus(#[source] KubeError),
     #[error("Failed to get deployment: {0}")]
     Get(#[source] KubeError),
     #[error("Failed to check secrets: {0}")]
@@ -78,14 +78,14 @@ pub enum DeploymentError {
     Generate(#[source] IntoDeploymentError),
     #[error("Failed to apply deployment: {0}")]
     Apply(#[source] KubeError),
-    #[error(transparent)]
-    Status(StatusError),
+    #[error("Error setting status: {0}")]
+    SetStatus(#[source] StatusError),
 }
 
 #[derive(ThisError, Debug)]
 pub enum ServiceError {
-    #[error("Kubernetes error: {0}")]
-    Kube(#[source] KubeError),
+    #[error("Error getting status: {0}")]
+    GetStatus(#[source] KubeError),
     #[error("Failed to get service: {0}")]
     Get(#[source] KubeError),
     #[error("Failed to get owner reference")]
@@ -94,16 +94,16 @@ pub enum ServiceError {
     Generate(#[source] IntoServiceError),
     #[error("Failed to apply service: {0}")]
     Apply(#[source] KubeError),
-    #[error(transparent)]
-    Status(StatusError),
+    #[error("Error setting status: {0}")]
+    SetStatus(#[source] StatusError),
 }
 
 #[derive(ThisError, Debug)]
 pub enum DeployedStatusError {
-    #[error("Kubernetes error: {0}")]
-    Kube(#[source] KubeError),
-    #[error(transparent)]
-    Status(StatusError),
+    #[error("Error getting status: {0}")]
+    GetStatus(#[source] KubeError),
+    #[error("Error setting status: {0}")]
+    SetStatus(#[source] StatusError),
 }
 
 #[derive(ThisError, Debug)]
@@ -113,7 +113,6 @@ pub enum CleanupError {}
 pub enum FinalizeError {
     #[error("Failed to apply resource: {0}")]
     Apply(#[source] ApplyError),
-
     #[error("Failed to cleanup resource: {0}")]
     Cleanup(#[source] CleanupError),
 }

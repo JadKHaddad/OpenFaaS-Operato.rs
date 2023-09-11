@@ -4,6 +4,7 @@ use crate::crds::defs::{
     OpenFaasFunctionStatus, FINALIZER_NAME,
 };
 use futures::stream::StreamExt;
+use k8s_openapi::api::core::v1::Namespace;
 use k8s_openapi::api::{
     apps::v1::Deployment,
     core::v1::{Secret, Service},
@@ -206,14 +207,14 @@ impl OperatorInner {
             let mut crd_with_status = api
                 .get_status(&name)
                 .await
-                .map_err(CheckResourceNamespaceError::Kube)?;
+                .map_err(CheckResourceNamespaceError::GetStatus)?;
 
             let status =
                 OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::InvalidCRDNamespace);
 
             self.replace_status(&mut crd_with_status, status)
                 .await
-                .map_err(CheckResourceNamespaceError::Status)?;
+                .map_err(CheckResourceNamespaceError::SetStatus)?;
 
             tracing::info!("Requeueing resource.");
 
@@ -248,7 +249,7 @@ impl OperatorInner {
                     let mut crd_with_status = api
                         .get_status(&name)
                         .await
-                        .map_err(CheckFunctionNamespaceError::Kube)?;
+                        .map_err(CheckFunctionNamespaceError::GetStatus)?;
 
                     let status = OpenFaasFunctionStatus::Err(
                         OpenFaasFunctionErrorStatus::InvalidFunctionNamespace,
@@ -256,7 +257,7 @@ impl OperatorInner {
 
                     self.replace_status(&mut crd_with_status, status)
                         .await
-                        .map_err(CheckFunctionNamespaceError::Status)?;
+                        .map_err(CheckFunctionNamespaceError::SetStatus)?;
 
                     tracing::info!("Requeueing resource.");
 
@@ -296,8 +297,10 @@ impl OperatorInner {
                 if !deployment_orefs.contains(&crd_oref) {
                     tracing::error!("Deployment does not have owner reference.");
 
-                    let mut crd_with_status =
-                        api.get_status(&name).await.map_err(DeploymentError::Kube)?;
+                    let mut crd_with_status = api
+                        .get_status(&name)
+                        .await
+                        .map_err(DeploymentError::GetStatus)?;
 
                     let status = OpenFaasFunctionStatus::Err(
                         OpenFaasFunctionErrorStatus::DeploymentAlreadyExists,
@@ -305,7 +308,7 @@ impl OperatorInner {
 
                     self.replace_status(&mut crd_with_status, status)
                         .await
-                        .map_err(DeploymentError::Status)?;
+                        .map_err(DeploymentError::SetStatus)?;
 
                     tracing::info!("Requeueing resource.");
 
@@ -354,7 +357,7 @@ impl OperatorInner {
             let existing_secret_names: Vec<String> = secrets_api
                 .list(&ListParams::default())
                 .await
-                .map_err(CheckSecretsError::Kube)?
+                .map_err(CheckSecretsError::List)?
                 .into_iter()
                 .map(|secret| secret.metadata.name.unwrap_or_default())
                 .collect();
@@ -372,14 +375,14 @@ impl OperatorInner {
                 let mut crd_with_status = api
                     .get_status(&name)
                     .await
-                    .map_err(CheckSecretsError::Kube)?;
+                    .map_err(CheckSecretsError::List)?;
 
                 let status =
                     OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::SecretsNotFound);
 
                 self.replace_status(&mut crd_with_status, status)
                     .await
-                    .map_err(CheckSecretsError::Status)?;
+                    .map_err(CheckSecretsError::SetStatus)?;
 
                 tracing::info!("Requeueing resource.");
 
@@ -417,8 +420,10 @@ impl OperatorInner {
                 if !service_orefs.contains(&crd_oref) {
                     tracing::error!("Service does not have owner reference.");
 
-                    let mut crd_with_status =
-                        api.get_status(&name).await.map_err(ServiceError::Kube)?;
+                    let mut crd_with_status = api
+                        .get_status(&name)
+                        .await
+                        .map_err(ServiceError::GetStatus)?;
 
                     let status = OpenFaasFunctionStatus::Err(
                         OpenFaasFunctionErrorStatus::ServiceAlreadyExists,
@@ -426,7 +431,7 @@ impl OperatorInner {
 
                     self.replace_status(&mut crd_with_status, status)
                         .await
-                        .map_err(ServiceError::Status)?;
+                        .map_err(ServiceError::SetStatus)?;
 
                     tracing::info!("Requeueing resource.");
 
@@ -463,13 +468,13 @@ impl OperatorInner {
         let mut crd_with_status = api
             .get_status(&name)
             .await
-            .map_err(DeployedStatusError::Kube)?;
+            .map_err(DeployedStatusError::GetStatus)?;
 
         let status = OpenFaasFunctionStatus::Ok(OpenFaasFunctionOkStatus::Deployed);
 
         self.replace_status(&mut crd_with_status, status)
             .await
-            .map_err(DeployedStatusError::Status)?;
+            .map_err(DeployedStatusError::SetStatus)?;
 
         Ok(None)
     }
@@ -486,17 +491,32 @@ impl Operator {
         Self { inner }
     }
 
-    pub fn new_with_check_functions_namespace(
+    pub async fn new_with_check_functions_namespace(
         client: KubeClient,
         functions_namespace: String,
-    ) -> Result<Self, ()> {
-        unimplemented!()
+    ) -> Self {
+        tracing::info!("Checking if namespace exists.");
+        let namespace_api: Api<Namespace> = Api::all(client.clone());
+
+        match namespace_api.get_opt(&functions_namespace).await {
+            Ok(namespace_opt) => match namespace_opt {
+                Some(_) => {
+                    tracing::info!("Namespace exists.");
+                }
+                None => {
+                    tracing::warn!("Namespace does not exist.");
+                }
+            },
+            Err(error) => {
+                tracing::warn!(%error,"Failed to check if namespace exists.");
+            }
+        }
+
+        Self::new(client, functions_namespace)
     }
 
     pub async fn run(self) {
-        tracing::info!("Controller starting.");
-
-        let reconcile_span = trace_span!("Reconcile");
+        tracing::info!("Starting.");
 
         let api = self.inner.api.clone();
         let deployment_api = self.inner.deployment_api.clone();
@@ -517,10 +537,9 @@ impl Operator {
                     }
                 }
             })
-            .instrument(reconcile_span)
             .await;
 
-        tracing::info!("Controller terminated.");
+        tracing::info!("Terminated.");
     }
 }
 
