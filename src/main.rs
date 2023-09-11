@@ -1,6 +1,6 @@
 use anyhow::Result as AnyResult;
 use kube::Client as KubeClient;
-use openfaas_operato_rs::{consts::*, crds::defs::OpenFaaSFunction, operator::operator::Operator};
+use openfaas_operato_rs::{consts::*, crds::defs::OpenFaaSFunction, operator::Operator};
 use tracing::{trace_span, Instrument};
 use tracing_subscriber::EnvFilter;
 
