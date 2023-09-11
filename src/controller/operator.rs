@@ -20,7 +20,6 @@ use tokio::time::Duration;
 use tracing::{trace_span, Instrument};
 
 struct OperatorInner {
-    kubernetes_client: KubeClient,
     functions_namespace: String,
     api: Api<OpenFaaSFunction>,
     deployment_api: Api<Deployment>,
@@ -36,11 +35,10 @@ impl OperatorInner {
             Api::namespaced(kubernetes_client.clone(), &functions_namespace);
         let service_api: Api<Service> =
             Api::namespaced(kubernetes_client.clone(), &functions_namespace);
-        let secrets_api: Api<Secret> =
-            Api::namespaced(kubernetes_client.clone(), &functions_namespace);
+
+        let secrets_api: Api<Secret> = Api::namespaced(kubernetes_client, &functions_namespace);
 
         Self {
-            kubernetes_client,
             functions_namespace,
             api,
             deployment_api,
