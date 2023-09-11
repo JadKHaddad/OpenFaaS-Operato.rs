@@ -1,4 +1,4 @@
-use crate::request::functions::{DeleteFunctionRequest, FunctionDeployment};
+use super::request::functions::{DeleteFunctionRequest, FunctionDeployment};
 use reqwest::{Error as ReqwestError, Method, Request, Response, StatusCode};
 use serde::Serialize;
 use serde_json::Error as SerdeJsonError;
@@ -17,7 +17,7 @@ impl BasicAuth {
 }
 
 pub type RequestBuildResult = Result<Request, RequestBuildError>;
-pub type FaasResult = Result<(), FaasError>;
+pub type OpenFaaSResult = Result<(), OpenFaaSError>;
 
 #[derive(ThisError, Debug)]
 pub enum RequestBuildError {
@@ -43,18 +43,18 @@ pub enum RequestExecutionError {
         #[from]
         ReqwestError,
     ),
-    #[error("Faas: bad request")]
+    #[error("OpenFaaS: bad request")]
     BadRequest,
-    #[error("Faas: not found")]
+    #[error("OpenFaaS: not found")]
     NotFound,
-    #[error("Faas: internal server error")]
+    #[error("OpenFaaS: internal server error")]
     InternalServerError,
-    #[error("Faas: unexpected status code: {0}")]
+    #[error("OpenFaaS: unexpected status code: {0}")]
     UnexpectedStatusCode(u16),
 }
 
 #[derive(ThisError, Debug)]
-pub enum FaasError {
+pub enum OpenFaaSError {
     #[error("Request build error: {0}")]
     RequestBuildError(
         #[source]
@@ -80,13 +80,13 @@ impl From<StatusCode> for RequestExecutionError {
     }
 }
 
-pub struct FaasCleint {
+pub struct OpenFaaSCleint {
     client: reqwest::Client,
     functions_endpoint: Url,
     basic_auth: Option<BasicAuth>,
 }
 
-impl FaasCleint {
+impl OpenFaaSCleint {
     /// Base URL of the OpenFaaS gateway
     /// e.g. http://gateway.openfaas:8080
     pub fn new(base_url: Url, basic_auth: Option<BasicAuth>) -> Result<Self, url::ParseError> {
@@ -98,11 +98,11 @@ impl FaasCleint {
         })
     }
 
-    fn status_code_into_faas_result(status_code: StatusCode) -> FaasResult {
+    fn status_code_into_openfaas_result(status_code: StatusCode) -> OpenFaaSResult {
         match status_code {
             StatusCode::OK => Ok(()),
             StatusCode::ACCEPTED => Ok(()),
-            status_code => Err(FaasError::ExecutionError(status_code.into())),
+            status_code => Err(OpenFaaSError::ExecutionError(status_code.into())),
         }
     }
 
@@ -132,19 +132,19 @@ impl FaasCleint {
         &self,
         method: Method,
         body: &T,
-    ) -> FaasResult {
+    ) -> OpenFaaSResult {
         let req = self.build_request(method, body)?;
         let res = self.execute_request(req).await?;
 
-        Self::status_code_into_faas_result(res.status())
+        Self::status_code_into_openfaas_result(res.status())
     }
 
-    pub async fn deploy_function(&self, function_deployment: FunctionDeployment) -> FaasResult {
+    pub async fn deploy_function(&self, function_deployment: FunctionDeployment) -> OpenFaaSResult {
         self.build_and_execute_request(Method::POST, &function_deployment)
             .await
     }
 
-    pub async fn update_function(&self, function_deployment: FunctionDeployment) -> FaasResult {
+    pub async fn update_function(&self, function_deployment: FunctionDeployment) -> OpenFaaSResult {
         self.build_and_execute_request(Method::PUT, &function_deployment)
             .await
     }
@@ -152,7 +152,7 @@ impl FaasCleint {
     pub async fn delete_function(
         &self,
         delete_function_request: DeleteFunctionRequest,
-    ) -> FaasResult {
+    ) -> OpenFaaSResult {
         self.build_and_execute_request(Method::DELETE, &delete_function_request)
             .await
     }

@@ -13,7 +13,7 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns: []
-    name: v1
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Auto-generated derived type for OpenFaasFunctionSpec via `CustomResource`
@@ -102,32 +102,22 @@ spec:
             nullable: true
             oneOf:
             - required:
-              - OnDeploy
+              - Ok
             - required:
-              - OnDelete
+              - Err
             properties:
-              OnDelete:
+              Err:
                 enum:
-                - FirstSeen
-                - FinalizerRemoved
-                - CouldNotReachFaaS
-                - FaaSRequestSent
-                - FaaSReturnedBadRequestError
-                - FaaSReturnedNotFoundError
-                - FaaSReturnedOk
-                - AlreadyDeleted
+                - InvalidCRDNamespace
+                - InvalidFunctionNamespace
+                - DeploymentAlreadyExists
+                - ServiceAlreadyExists
+                - SecretsNotFound
                 type: string
-              OnDeploy:
+              Ok:
                 enum:
-                - FirstSeen
-                - FinalizerSet
-                - CouldNotReachFaaS
-                - FaaSRequestSent
-                - FaaSReturnedBadRequestError
-                - FaaSReturnedNotFoundError
-                - FaaSReturnedOk
-                - AlreadyDeployed
                 - Deployed
+                - Ready
                 type: string
             type: object
         required:

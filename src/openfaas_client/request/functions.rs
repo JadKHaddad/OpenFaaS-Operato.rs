@@ -1,4 +1,4 @@
-use crate::crds::OpenFaasFunctionSpec;
+use crate::crds::defs::OpenFaasFunctionSpec;
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
 

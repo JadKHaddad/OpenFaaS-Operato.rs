@@ -1,15 +1,15 @@
 use kube::CustomResource;
-use kube::CustomResourceExt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use thiserror::Error as ThisError;
 
-pub const FINALIZER: &str = "openfaasfunctions.operato.rs/finalizer";
+pub const FINALIZER_NAME: &str = "openfaasfunctions.operato.rs/finalizer";
 
 #[derive(CustomResource, Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
 #[kube(
     group = "operato.rs",
-    version = "v1",
+    version = "v1alpha1",
     kind = "OpenFaaSFunction",
     plural = "openfaasfunctions",
     derive = "PartialEq",
@@ -70,46 +70,80 @@ pub struct FunctionResources {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
 pub enum OpenFaasFunctionStatus {
-    OnDeploy(OnDeployStatus),
-    OnDelete(OnDeleteStatus),
+    Ok(OpenFaasFunctionOkStatus),
+    Err(OpenFaasFunctionErrorStatus),
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
-pub enum OnDeployStatus {
-    FirstSeen,
-    FinalizerSet,
-    CouldNotReachFaaS,
-    FaaSRequestSent,
-    FaaSReturnedBadRequestError,
-    FaaSReturnedNotFoundError,
-    FaaSReturnedOk,
-    AlreadyDeployed,
+pub enum OpenFaasFunctionOkStatus {
     Deployed,
+    Ready,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
-pub enum OnDeleteStatus {
-    FirstSeen,
-    FinalizerRemoved,
-    CouldNotReachFaaS,
-    FaaSRequestSent,
-    FaaSReturnedBadRequestError,
-    FaaSReturnedNotFoundError,
-    FaaSReturnedOk,
-    AlreadyDeleted,
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema, ThisError)]
+pub enum OpenFaasFunctionErrorStatus {
+    #[error("The CRD namespace does not match the functions namespace")]
+    InvalidCRDNamespace,
+    #[error("The function namespace does not match the functions namespace")]
+    InvalidFunctionNamespace,
+    #[error("The function deployment already deployed by third party")]
+    DeploymentAlreadyExists,
+    #[error("The function service already deployed by third party")]
+    ServiceAlreadyExists,
+    #[error("The given secrets to mount do not exist")]
+    SecretsNotFound,
 }
 
-impl OpenFaaSFunction {
-    pub fn generate_crds() -> String {
-        serde_yaml::to_string(&OpenFaaSFunction::crd()).expect("Failed to generate crds")
-    }
+pub enum DeploymentDiff {
+    /// ```Container``` is missing. Name: ```OpenFaasFunctionSpec::service```
+    Container,
+    /// If ```Container``` is not missing in the deployment containers, but ```Image``` is different
+    Image,
+    /// ```EnvProcess``` is missing or different
+    EnvProcess,
+    /// ```EnvVars``` are missing
+    NoEnvVars,
+    /// An ```EnvVar``` is missing or different
+    EnvVar(String),
+    /// ```Constraints``` are missing
+    NoConstraints,
+    /// A ```Constraint``` is missing
+    Constraints(String),
+    /// ```Secrets``` are missing
+    NoSecrets,
+    /// A ```Secret``` is missing or different
+    Secrets(String),
+    /// ```Labels``` are missing
+    NoLabels,
+    /// A ```Label``` is missing or different
+    Labels(String),
+    /// ```Annotations``` are missing
+    NoAnnotations,
+    /// An ```Annotation``` is missing or different
+    Annotation(String),
+    /// ```Limits``` are missing or different
+    Limits(ResourceDiff),
+    /// ```Requests``` are missing or different
+    Requests(ResourceDiff),
+    /// ```ReadOnlyRootFilesystem``` is missing or different
+    ReadOnlyRootFilesystem,
+}
 
-    pub fn print_crds() {
-        println!("{:#?}", OpenFaaSFunction::generate_crds());
-    }
+pub enum ResourceDiff {
+    Memory,
+    CPU,
+}
 
-    pub fn write_crds_to_file(path: &str) {
-        let crds = OpenFaaSFunction::generate_crds();
-        std::fs::write(path, crds).expect("Failed to write crds to file");
-    }
+pub enum ServiceDiff {}
+
+#[derive(ThisError, Debug)]
+pub enum IntoDeploymentError {
+    #[error("Failed to get owner reference")]
+    FailedToGetOwnerReference,
+}
+
+#[derive(ThisError, Debug)]
+pub enum IntoServiceError {
+    #[error("Failed to get owner reference")]
+    FailedToGetOwnerReference,
 }

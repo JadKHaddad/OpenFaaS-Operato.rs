@@ -1,9 +1,24 @@
-apiVersion: operato.rs/v1
+apiVersion: operato.rs/v1alpha1
 kind: OpenFaaSFunction
 metadata:
   name: nodeinfo
-  namespace: openfaas
+  namespace: openfaas-fn
 spec:
   service: nodeinfo
   image: ghcr.io/openfaas/nodeinfo:latest
   namespace: openfaas-fn
+  labels:
+    label: "value"
+    label2: "value2"
+  annotations:
+    annotation: "value"
+    annotation2: "value2"
+  envVars:
+    envVar: "value"
+    envVar2: "value2"
+  secrets:
+    - s3accesskey
+    - s3accesskey
+    - s2accesskey
+  readOnlyRootFilesystem: true
+# kubectl describe openfaasfunctions -n openfaas-fn nodeinfo
