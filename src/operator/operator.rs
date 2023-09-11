@@ -1,8 +1,8 @@
-use crate::controller::errors::*;
 use crate::crds::defs::{
     OpenFaaSFunction, OpenFaasFunctionErrorStatus, OpenFaasFunctionOkStatus,
     OpenFaasFunctionStatus, FINALIZER_NAME,
 };
+use crate::operator::errors::*;
 use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::Namespace;
 use k8s_openapi::api::{
