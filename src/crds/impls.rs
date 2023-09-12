@@ -61,11 +61,7 @@ impl OpenFaasFunctionSpec {
     }
 
     pub fn get_constraints_vec(&self) -> Vec<String> {
-        self.constraints
-            .clone()
-            .unwrap_or(vec![])
-            .into_iter()
-            .collect()
+        self.constraints.clone().unwrap_or(vec![])
     }
 
     fn to_env_process_name(&self) -> String {
@@ -85,9 +81,7 @@ impl OpenFaasFunctionSpec {
     }
 
     fn to_meta_labels(&self) -> BTreeMap<String, String> {
-        [(String::from("faas_function"), self.to_name())]
-            .into_iter()
-            .collect()
+        [(String::from("faas_function"), self.to_name())].into()
     }
 
     fn to_spec_meta_labels(&self) -> BTreeMap<String, String> {
