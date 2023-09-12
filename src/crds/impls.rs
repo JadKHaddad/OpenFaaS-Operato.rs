@@ -85,7 +85,7 @@ impl OpenFaasFunctionSpec {
     }
 
     fn to_meta_labels(&self) -> BTreeMap<String, String> {
-        vec![(String::from("faas_function"), self.service.clone())]
+        [(String::from("faas_function"), self.to_name())]
             .into_iter()
             .collect()
     }
