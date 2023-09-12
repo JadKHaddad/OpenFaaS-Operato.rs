@@ -1,3 +1,5 @@
+use crate::utils;
+
 use super::defs::{
     DeploymentDiff, IntoDeploymentError, IntoServiceError, OpenFaaSFunction,
     OpenFaasFunctionOkStatus, OpenFaasFunctionSpec, ServiceDiff,
@@ -58,6 +60,14 @@ impl OpenFaasFunctionSpec {
             .collect()
     }
 
+    pub fn get_constraints_vec(&self) -> Vec<String> {
+        self.constraints
+            .clone()
+            .unwrap_or(vec![])
+            .into_iter()
+            .collect()
+    }
+
     fn to_env_process_name(&self) -> String {
         String::from("fprocess")
     }
@@ -105,6 +115,29 @@ impl OpenFaasFunctionSpec {
         }
     }
 
+    fn to_node_selector(&self) -> Option<BTreeMap<String, String>> {
+        let constraints = self.get_constraints_vec();
+
+        if constraints.is_empty() {
+            return None;
+        }
+
+        let node_selector: BTreeMap<String, String> = constraints
+            .iter()
+            .map(|c| c.split("==").collect::<Vec<&str>>())
+            .filter(|v| v.len() == 2)
+            .map(|v| {
+                (
+                    utils::remove_whitespace(v[0]),
+                    utils::remove_whitespace(v[1]),
+                )
+            })
+            .unique()
+            .collect();
+
+        Some(node_selector)
+    }
+
     fn to_deployment_meta(&self) -> ObjectMeta {
         ObjectMeta {
             name: Some(self.to_name()),
@@ -135,9 +168,11 @@ impl OpenFaasFunctionSpec {
             if let Some(cpu) = r.cpu {
                 limits.insert(String::from("cpu"), Quantity(cpu));
             }
+
             if let Some(memory) = r.memory {
                 limits.insert(String::from("memory"), Quantity(memory));
             }
+
             limits
         })
     }
@@ -145,12 +180,15 @@ impl OpenFaasFunctionSpec {
     fn to_requests(&self) -> Option<BTreeMap<String, Quantity>> {
         self.requests.clone().map(|r| {
             let mut requests = BTreeMap::new();
+
             if let Some(cpu) = r.cpu {
                 requests.insert(String::from("cpu"), Quantity(cpu));
             }
+
             if let Some(memory) = r.memory {
                 requests.insert(String::from("memory"), Quantity(memory));
             }
+
             requests
         })
     }
@@ -432,6 +470,7 @@ impl From<&OpenFaasFunctionSpec> for PodSpec {
         PodSpec {
             containers: Vec::<Container>::from(value),
             volumes: Option::<Vec<Volume>>::from(value),
+            node_selector: value.to_node_selector(),
             ..Default::default()
         }
     }
