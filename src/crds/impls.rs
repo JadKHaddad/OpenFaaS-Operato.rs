@@ -85,21 +85,22 @@ impl OpenFaasFunctionSpec {
     }
 
     fn to_meta_labels(&self) -> BTreeMap<String, String> {
-        let mut labels = BTreeMap::new();
-        labels.insert(String::from("faas_function"), self.service.clone());
-        labels
+        vec![(String::from("faas_function"), self.service.clone())]
+            .into_iter()
+            .collect()
     }
 
     fn to_spec_meta_labels(&self) -> BTreeMap<String, String> {
-        let meta_labels = self.to_meta_labels();
-        if let Some(lables) = self.labels.clone() {
-            let mut labels: BTreeMap<String, String> = lables.into_iter().collect();
-            labels.extend(meta_labels);
+        self.labels
+            .clone()
+            .map(|lables| {
+                let mut labels: BTreeMap<String, String> = lables.into_iter().collect();
 
-            labels
-        } else {
-            meta_labels
-        }
+                labels.extend(self.to_meta_labels());
+
+                labels
+            })
+            .unwrap_or(self.to_meta_labels())
     }
 
     fn to_service_selector_labels(&self) -> BTreeMap<String, String> {
@@ -107,12 +108,7 @@ impl OpenFaasFunctionSpec {
     }
 
     fn to_annotations(&self) -> Option<BTreeMap<String, String>> {
-        if let Some(annotations) = self.annotations.clone() {
-            let annotations: BTreeMap<String, String> = annotations.into_iter().collect();
-            Some(annotations)
-        } else {
-            None
-        }
+        self.annotations.clone().map(|a| a.into_iter().collect())
     }
 
     fn to_node_selector(&self) -> Option<BTreeMap<String, String>> {
@@ -228,24 +224,25 @@ impl OpenFaasFunctionSpec {
             return None;
         }
 
-        let mut sources = Vec::new();
-
-        for secret in secrets {
-            let items = vec![KeyToPath {
-                key: secret.clone(),
-                path: secret.clone(),
-                ..Default::default()
-            }];
-
-            sources.push(VolumeProjection {
-                secret: Some(SecretProjection {
-                    name: Some(secret),
-                    items: Some(items),
+        let sources = secrets
+            .iter()
+            .map(|secret| {
+                let items = vec![KeyToPath {
+                    key: secret.clone(),
+                    path: secret.clone(),
                     ..Default::default()
-                }),
-                ..Default::default()
-            });
-        }
+                }];
+
+                VolumeProjection {
+                    secret: Some(SecretProjection {
+                        name: Some(secret.clone()),
+                        items: Some(items),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }
+            })
+            .collect();
 
         Some(ProjectedVolumeSource {
             sources: Some(sources),
@@ -364,10 +361,10 @@ impl From<&OpenFaasFunctionSpec> for Option<Vec<EnvVar>> {
         let env_vars = Vec::<EnvVar>::from(value);
 
         if env_vars.is_empty() {
-            None
-        } else {
-            Some(env_vars)
+            return None;
         }
+
+        Some(env_vars)
     }
 }
 
@@ -424,10 +421,10 @@ impl From<&OpenFaasFunctionSpec> for Option<Vec<VolumeMount>> {
         let volume_mounts = Vec::<VolumeMount>::from(value);
 
         if volume_mounts.is_empty() {
-            None
-        } else {
-            Some(volume_mounts)
+            return None;
         }
+
+        Some(volume_mounts)
     }
 }
 
@@ -458,10 +455,10 @@ impl From<&OpenFaasFunctionSpec> for Option<Vec<Volume>> {
         let volumes = Vec::<Volume>::from(value);
 
         if volumes.is_empty() {
-            None
-        } else {
-            Some(volumes)
+            return None;
         }
+
+        Some(volumes)
     }
 }
 
