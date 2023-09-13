@@ -1,4 +1,6 @@
+use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use kube::CustomResource;
+use kube_quantity::{ParseQuantityError, ParsedQuantity};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -66,6 +68,31 @@ pub struct FunctionResources {
     pub memory: Option<String>,
     /// cpu is the cpu limit for the function
     pub cpu: Option<String>,
+}
+
+pub struct FunctionResourcesQuantity {
+    pub memory: Option<Quantity>,
+    pub cpu: Option<Quantity>,
+}
+
+impl TryFrom<FunctionResources> for FunctionResourcesQuantity {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: FunctionResources) -> Result<Self, Self::Error> {
+        let memory: Option<Quantity> = value
+            .memory
+            .map(|m| ParsedQuantity::try_from(m).map_err(IntoQuantityError::Memory))
+            .transpose()?
+            .map(|m| m.into());
+
+        let cpu: Option<Quantity> = value
+            .cpu
+            .map(|m| ParsedQuantity::try_from(m).map_err(IntoQuantityError::CPU))
+            .transpose()?
+            .map(|m| m.into());
+
+        Ok(Self { memory, cpu })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
@@ -146,4 +173,12 @@ pub enum IntoDeploymentError {
 pub enum IntoServiceError {
     #[error("Failed to get owner reference")]
     FailedToGetOwnerReference,
+}
+
+#[derive(ThisError, Debug)]
+pub enum IntoQuantityError {
+    #[error("Failed to parse cpu quantity: {0}")]
+    CPU(#[source] ParseQuantityError),
+    #[error("Failed to parse memory quantity: {0}")]
+    Memory(#[source] ParseQuantityError),
 }
