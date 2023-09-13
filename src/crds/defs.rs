@@ -75,18 +75,20 @@ pub struct FunctionResourcesQuantity {
     pub cpu: Option<Quantity>,
 }
 
-impl TryFrom<FunctionResources> for FunctionResourcesQuantity {
+impl TryFrom<&FunctionResources> for FunctionResourcesQuantity {
     type Error = IntoQuantityError;
 
-    fn try_from(value: FunctionResources) -> Result<Self, Self::Error> {
+    fn try_from(value: &FunctionResources) -> Result<Self, Self::Error> {
         let memory: Option<Quantity> = value
             .memory
+            .clone()
             .map(|m| ParsedQuantity::try_from(m).map_err(IntoQuantityError::Memory))
             .transpose()?
             .map(|m| m.into());
 
         let cpu: Option<Quantity> = value
             .cpu
+            .clone()
             .map(|m| ParsedQuantity::try_from(m).map_err(IntoQuantityError::CPU))
             .transpose()?
             .map(|m| m.into());
@@ -166,7 +168,9 @@ pub enum ServiceDiff {}
 #[derive(ThisError, Debug)]
 pub enum IntoDeploymentError {
     #[error("Failed to get owner reference")]
-    FailedToGetOwnerReference,
+    OwnerReference,
+    #[error("Failed to parse quantity: {0}")]
+    Quantity(#[from] IntoQuantityError),
 }
 
 #[derive(ThisError, Debug)]

@@ -1,8 +1,9 @@
 use crate::utils;
 
 use super::defs::{
-    DeploymentDiff, IntoDeploymentError, IntoServiceError, OpenFaaSFunction,
-    OpenFaasFunctionOkStatus, OpenFaasFunctionSpec, ServiceDiff,
+    DeploymentDiff, FunctionResources, FunctionResourcesQuantity, IntoDeploymentError,
+    IntoQuantityError, IntoServiceError, OpenFaaSFunction, OpenFaasFunctionOkStatus,
+    OpenFaasFunctionSpec, ServiceDiff,
 };
 use itertools::Itertools;
 use k8s_openapi::{
@@ -31,6 +32,34 @@ impl Display for OpenFaasFunctionOkStatus {
                 write!(f, "Deployment is ready. Service has the correct endpoints")
             }
         }
+    }
+}
+
+impl FunctionResources {
+    fn try_to_k8s_resources(
+        &self,
+    ) -> Result<Option<BTreeMap<String, Quantity>>, IntoQuantityError> {
+        Ok(FunctionResourcesQuantity::try_from(self)?.to_k8s_resources())
+    }
+}
+
+impl FunctionResourcesQuantity {
+    fn to_k8s_resources(&self) -> Option<BTreeMap<String, Quantity>> {
+        let mut resources = BTreeMap::new();
+
+        if let Some(cpu) = self.cpu.clone() {
+            resources.insert(String::from("cpu"), cpu);
+        }
+
+        if let Some(memory) = self.memory.clone() {
+            resources.insert(String::from("memory"), memory);
+        }
+
+        if resources.is_empty() {
+            return None;
+        }
+
+        Some(resources)
     }
 }
 
@@ -151,37 +180,53 @@ impl OpenFaasFunctionSpec {
         }
     }
 
-    fn to_limits(&self) -> Option<BTreeMap<String, Quantity>> {
-        self.limits.clone().map(|r| {
-            let mut limits = BTreeMap::new();
+    fn try_to_limits(&self) -> Result<Option<BTreeMap<String, Quantity>>, IntoQuantityError> {
+        if let Some(ref limits) = self.limits {
+            return limits.try_to_k8s_resources();
+        }
 
-            if let Some(cpu) = r.cpu {
-                limits.insert(String::from("cpu"), Quantity(cpu));
-            }
-
-            if let Some(memory) = r.memory {
-                limits.insert(String::from("memory"), Quantity(memory));
-            }
-
-            limits
-        })
+        Ok(None)
     }
 
-    fn to_requests(&self) -> Option<BTreeMap<String, Quantity>> {
-        self.requests.clone().map(|r| {
-            let mut requests = BTreeMap::new();
+    fn try_to_requests(&self) -> Result<Option<BTreeMap<String, Quantity>>, IntoQuantityError> {
+        if let Some(ref requests) = self.requests {
+            return requests.try_to_k8s_resources();
+        }
 
-            if let Some(cpu) = r.cpu {
-                requests.insert(String::from("cpu"), Quantity(cpu));
-            }
-
-            if let Some(memory) = r.memory {
-                requests.insert(String::from("memory"), Quantity(memory));
-            }
-
-            requests
-        })
+        Ok(None)
     }
+
+    // fn to_limits(&self) -> Option<BTreeMap<String, Quantity>> {
+    //     self.limits.clone().map(|r| {
+    //         let mut limits = BTreeMap::new();
+
+    //         if let Some(cpu) = r.cpu {
+    //             limits.insert(String::from("cpu"), Quantity(cpu));
+    //         }
+
+    //         if let Some(memory) = r.memory {
+    //             limits.insert(String::from("memory"), Quantity(memory));
+    //         }
+
+    //         limits
+    //     })
+    // }
+
+    // fn to_requests(&self) -> Option<BTreeMap<String, Quantity>> {
+    //     self.requests.clone().map(|r| {
+    //         let mut requests = BTreeMap::new();
+
+    //         if let Some(cpu) = r.cpu {
+    //             requests.insert(String::from("cpu"), Quantity(cpu));
+    //         }
+
+    //         if let Some(memory) = r.memory {
+    //             requests.insert(String::from("memory"), Quantity(memory));
+    //         }
+
+    //         requests
+    //     })
+    // }
 
     fn to_tmp_volume_name(&self) -> String {
         String::from("tmp")
@@ -362,24 +407,30 @@ impl From<&OpenFaasFunctionSpec> for Option<Vec<EnvVar>> {
     }
 }
 
-impl From<&OpenFaasFunctionSpec> for ResourceRequirements {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        ResourceRequirements {
-            limits: value.to_limits(),
-            requests: value.to_requests(),
-        }
+impl TryFrom<&OpenFaasFunctionSpec> for ResourceRequirements {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
+        Ok(ResourceRequirements {
+            limits: value.try_to_limits()?,
+            requests: value.try_to_requests()?,
+        })
     }
 }
 
-impl From<&OpenFaasFunctionSpec> for Option<ResourceRequirements> {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        Some(ResourceRequirements::from(value))
+impl TryFrom<&OpenFaasFunctionSpec> for Option<ResourceRequirements> {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
+        Ok(Some(ResourceRequirements::try_from(value)?))
     }
 }
 
-impl From<&OpenFaasFunctionSpec> for Container {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        Container {
+impl TryFrom<&OpenFaasFunctionSpec> for Container {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
+        Ok(Container {
             name: value.to_name(),
             image: Some(value.to_image()),
             ports: Option::<Vec<ContainerPort>>::from(value),
@@ -387,10 +438,10 @@ impl From<&OpenFaasFunctionSpec> for Container {
             readiness_probe: Option::<Probe>::from(value),
             security_context: Option::<SecurityContext>::from(value),
             volume_mounts: Option::<Vec<VolumeMount>>::from(value),
-            resources: Option::<ResourceRequirements>::from(value),
+            resources: Option::<ResourceRequirements>::try_from(value)?,
             env: Option::<Vec<EnvVar>>::from(value),
             ..Default::default()
-        }
+        })
     }
 }
 
@@ -422,9 +473,11 @@ impl From<&OpenFaasFunctionSpec> for Option<Vec<VolumeMount>> {
     }
 }
 
-impl From<&OpenFaasFunctionSpec> for Vec<Container> {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        vec![Container::from(value)]
+impl TryFrom<&OpenFaasFunctionSpec> for Vec<Container> {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
+        Ok(vec![Container::try_from(value)?])
     }
 }
 
@@ -456,20 +509,24 @@ impl From<&OpenFaasFunctionSpec> for Option<Vec<Volume>> {
     }
 }
 
-impl From<&OpenFaasFunctionSpec> for PodSpec {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        PodSpec {
-            containers: Vec::<Container>::from(value),
+impl TryFrom<&OpenFaasFunctionSpec> for PodSpec {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
+        Ok(PodSpec {
+            containers: Vec::<Container>::try_from(value)?,
             volumes: Option::<Vec<Volume>>::from(value),
             node_selector: value.to_node_selector(),
             ..Default::default()
-        }
+        })
     }
 }
 
-impl From<&OpenFaasFunctionSpec> for Option<PodSpec> {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        Some(PodSpec::from(value))
+impl TryFrom<&OpenFaasFunctionSpec> for Option<PodSpec> {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
+        Ok(Some(PodSpec::try_from(value)?))
     }
 }
 
@@ -482,40 +539,48 @@ impl From<&OpenFaasFunctionSpec> for LabelSelector {
     }
 }
 
-impl From<&OpenFaasFunctionSpec> for PodTemplateSpec {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        PodTemplateSpec {
+impl TryFrom<&OpenFaasFunctionSpec> for PodTemplateSpec {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
+        Ok(PodTemplateSpec {
             metadata: Some(value.to_spec_template_meta()),
-            spec: Option::<PodSpec>::from(value),
-        }
+            spec: Option::<PodSpec>::try_from(value)?,
+        })
     }
 }
 
-impl From<&OpenFaasFunctionSpec> for DeploymentSpec {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        DeploymentSpec {
+impl TryFrom<&OpenFaasFunctionSpec> for DeploymentSpec {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
+        Ok(DeploymentSpec {
             replicas: Some(1),
             selector: LabelSelector::from(value),
-            template: PodTemplateSpec::from(value),
+            template: PodTemplateSpec::try_from(value)?,
             ..Default::default()
-        }
+        })
     }
 }
 
-impl From<&OpenFaasFunctionSpec> for Option<DeploymentSpec> {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        Some(DeploymentSpec::from(value))
+impl TryFrom<&OpenFaasFunctionSpec> for Option<DeploymentSpec> {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
+        Ok(Some(DeploymentSpec::try_from(value)?))
     }
 }
 
 /// Generate a fresh deployment
-impl From<&OpenFaasFunctionSpec> for Deployment {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        Deployment {
+impl TryFrom<&OpenFaasFunctionSpec> for Deployment {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
+        Ok(Deployment {
             metadata: value.to_deployment_meta(),
-            spec: Option::<DeploymentSpec>::from(value),
+            spec: Option::<DeploymentSpec>::try_from(value)?,
             ..Default::default()
-        }
+        })
     }
 }
 
@@ -592,9 +657,9 @@ impl TryFrom<&OpenFaaSFunction> for Deployment {
     fn try_from(value: &OpenFaaSFunction) -> Result<Self, Self::Error> {
         let oref = value
             .controller_owner_ref(&())
-            .ok_or(IntoDeploymentError::FailedToGetOwnerReference)?;
+            .ok_or(IntoDeploymentError::OwnerReference)?;
 
-        let mut dep = Deployment::from(&value.spec);
+        let mut dep = Deployment::try_from(&value.spec).map_err(IntoDeploymentError::Quantity)?;
 
         dep.metadata.owner_references = Some(vec![oref]);
 
