@@ -674,7 +674,7 @@ impl TryFrom<&OpenFaaSFunction> for Service {
     fn try_from(value: &OpenFaaSFunction) -> Result<Self, Self::Error> {
         let oref = value
             .controller_owner_ref(&())
-            .ok_or(IntoServiceError::FailedToGetOwnerReference)?;
+            .ok_or(IntoServiceError::OwnerReference)?;
 
         let mut svc = Service::from(&value.spec);
 

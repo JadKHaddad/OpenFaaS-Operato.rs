@@ -328,7 +328,8 @@ impl OperatorInner {
                 {
                     return Ok(Some(action));
                 }
-
+                // TODO: Now here we could get an IntoDeploymentError::Quantity
+                // TODO: so maybe we should set the status to Err(Quantity) and propagate the error
                 let deployment = Deployment::try_from(crd).map_err(DeploymentError::Generate)?;
                 deployment_api
                     .create(&PostParams::default(), &deployment)

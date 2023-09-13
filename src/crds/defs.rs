@@ -62,6 +62,7 @@ pub struct OpenFaasFunctionSpec {
 }
 
 /// FunctionResources Memory and CPU
+/// Must match ^([+-]?[0-9.]+)([eEinumkKMGTP][-+]?[0-9])$
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, JsonSchema)]
 pub struct FunctionResources {
     /// memory is the memory limit for the function
@@ -169,14 +170,14 @@ pub enum ServiceDiff {}
 pub enum IntoDeploymentError {
     #[error("Failed to get owner reference")]
     OwnerReference,
-    #[error("Failed to parse quantity: {0}")]
+    #[error("Failed to parse quantity: {0} | Quantity must match ^([+-]?[0-9.]+)([eEinumkKMGTP][-+]?[0-9])$")]
     Quantity(#[from] IntoQuantityError),
 }
 
 #[derive(ThisError, Debug)]
 pub enum IntoServiceError {
     #[error("Failed to get owner reference")]
-    FailedToGetOwnerReference,
+    OwnerReference,
 }
 
 #[derive(ThisError, Debug)]
