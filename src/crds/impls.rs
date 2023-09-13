@@ -196,38 +196,6 @@ impl OpenFaasFunctionSpec {
         Ok(None)
     }
 
-    // fn to_limits(&self) -> Option<BTreeMap<String, Quantity>> {
-    //     self.limits.clone().map(|r| {
-    //         let mut limits = BTreeMap::new();
-
-    //         if let Some(cpu) = r.cpu {
-    //             limits.insert(String::from("cpu"), Quantity(cpu));
-    //         }
-
-    //         if let Some(memory) = r.memory {
-    //             limits.insert(String::from("memory"), Quantity(memory));
-    //         }
-
-    //         limits
-    //     })
-    // }
-
-    // fn to_requests(&self) -> Option<BTreeMap<String, Quantity>> {
-    //     self.requests.clone().map(|r| {
-    //         let mut requests = BTreeMap::new();
-
-    //         if let Some(cpu) = r.cpu {
-    //             requests.insert(String::from("cpu"), Quantity(cpu));
-    //         }
-
-    //         if let Some(memory) = r.memory {
-    //             requests.insert(String::from("memory"), Quantity(memory));
-    //         }
-
-    //         requests
-    //     })
-    // }
-
     fn to_tmp_volume_name(&self) -> String {
         String::from("tmp")
     }
