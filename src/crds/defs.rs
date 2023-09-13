@@ -26,20 +26,20 @@ pub struct OpenFaasFunctionSpec {
     /// image is a fully-qualified container image
     pub image: String,
 
-    /// namespace for the function, if supported by the faas-provider
+    /// namespace for the function
     pub namespace: Option<String>,
 
     /// envProcess overrides the fprocess environment variable and can be used
     /// with the watchdog
     pub env_process: Option<String>,
 
-    /// envVars can be provided to set environment variables for the function runtime.
+    /// envVars can be provided to set environment variables for the function runtime
     pub env_vars: Option<HashMap<String, String>>,
 
     /// constraints are specific to the faas-provider.
     pub constraints: Option<Vec<String>>,
 
-    /// secrets list of secrets to be made available to function
+    /// list of names of secrets in the same namespace that will be mounted to secretsMountPath
     pub secrets: Option<Vec<String>>,
 
     /// labels are metadata for functions which may be used by the
@@ -59,6 +59,10 @@ pub struct OpenFaasFunctionSpec {
     /// readOnlyRootFilesystem removes write-access from the root filesystem
     /// mount-point.
     pub read_only_root_filesystem: Option<bool>,
+
+    /// secretsMountPath is the path where secrets will be mounted
+    /// defaults to /var/openfaas/secrets
+    pub secrets_mount_path: Option<String>,
 }
 
 /// FunctionResources Memory and CPU

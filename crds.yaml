@@ -39,7 +39,7 @@ spec:
               envVars:
                 additionalProperties:
                   type: string
-                description: envVars can be provided to set environment variables for the function runtime.
+                description: envVars can be provided to set environment variables for the function runtime
                 nullable: true
                 type: object
               image:
@@ -65,7 +65,7 @@ spec:
                     type: string
                 type: object
               namespace:
-                description: namespace for the function, if supported by the faas-provider
+                description: namespace for the function
                 nullable: true
                 type: string
               readOnlyRootFilesystem:
@@ -86,11 +86,15 @@ spec:
                     type: string
                 type: object
               secrets:
-                description: secrets list of secrets to be made available to function
+                description: list of names of secrets in the same namespace that will be mounted to secretsMountPath
                 items:
                   type: string
                 nullable: true
                 type: array
+              secretsMountPath:
+                description: secretsMountPath is the path where secrets will be mounted defaults to /var/openfaas/secrets
+                nullable: true
+                type: string
               service:
                 description: service is the name of the function deployment
                 type: string

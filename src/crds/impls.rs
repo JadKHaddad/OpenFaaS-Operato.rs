@@ -265,14 +265,20 @@ impl OpenFaasFunctionSpec {
         }
     }
 
-    fn to_secrets_volume_mount_path(&self) -> String {
+    fn to_default_secrets_mount_path(&self) -> String {
         String::from("/var/openfaas/secrets")
+    }
+
+    fn to_secrets_mount_path(&self) -> String {
+        self.secrets_mount_path
+            .clone()
+            .unwrap_or(self.to_default_secrets_mount_path())
     }
 
     fn to_secrets_volume_mount(&self) -> VolumeMount {
         VolumeMount {
             name: self.to_secrets_volume_name(),
-            mount_path: self.to_secrets_volume_mount_path(),
+            mount_path: self.to_secrets_mount_path(),
             read_only: Some(true),
             ..Default::default()
         }
