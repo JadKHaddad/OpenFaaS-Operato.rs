@@ -166,6 +166,17 @@ pub enum ResourceDiff {
 
 pub enum ServiceDiff {}
 
+// TODO: Now this one can be like this
+// Input errors set a status and return an error
+
+// #[derive(ThisError, Debug)]
+// pub enum IntoDeploymentError {
+//     #[error("...")]
+//     ControllerError(...), like OwnerReference or something
+//     #[error("...")]
+//     IputError(...), like Quantity or something
+// }
+
 #[derive(ThisError, Debug)]
 pub enum IntoDeploymentError {
     #[error("Failed to get owner reference")]
