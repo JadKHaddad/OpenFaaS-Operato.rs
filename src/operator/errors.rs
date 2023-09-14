@@ -66,36 +66,94 @@ pub enum CheckSecretsError {
 
 #[derive(ThisError, Debug)]
 pub enum DeploymentError {
-    #[error("Error getting status: {0}")]
-    GetStatus(#[source] KubeError),
     #[error("Failed to get deployment: {0}")]
     Get(#[source] KubeError),
-    #[error("Failed to check secrets: {0}")]
-    Secrets(#[source] CheckSecretsError),
     #[error("Failed to get owner reference")]
     OwnerReference,
-    #[error("Failed to generate deployment: {0}")]
-    Generate(#[source] IntoDeploymentError),
-    #[error("Failed to apply deployment: {0}")]
-    Apply(#[source] KubeError),
+    #[error("Failed to create deployment: {0}")]
+    Create(#[source] CreateDeploymentError),
+    #[error("Failed to check deployment: {0}")]
+    Check(#[source] CheckDeploymentError),
+    #[error("Failed to patch deployment: {0}")]
+    Patch(#[source] PatchError),
+    #[error("Failed to delete deployment: {0}")]
+    Delete(#[source] DeleteDeploymentsError),
+}
+
+#[derive(ThisError, Debug)]
+pub enum CheckDeploymentError {
+    #[error("Error getting status: {0}")]
+    GetStatus(#[source] KubeError),
     #[error("Error setting status: {0}")]
     SetStatus(#[source] StatusError),
 }
 
 #[derive(ThisError, Debug)]
-pub enum ServiceError {
+pub enum CreateDeploymentError {
+    #[error("Failed to check secrets: {0}")]
+    Secrets(#[source] CheckSecretsError),
+    #[error("Failed to generate deployment: {0}")]
+    Generate(#[source] IntoDeploymentError),
+    #[error("Failed to apply deployment: {0}")]
+    Apply(#[source] KubeError),
     #[error("Error getting status: {0}")]
     GetStatus(#[source] KubeError),
+    #[error("Error setting status: {0}")]
+    SetStatus(#[source] StatusError),
+}
+
+#[derive(ThisError, Debug)]
+pub enum DeleteDeploymentsError {
+    #[error("Error listing deployments: {0}")]
+    List(#[source] KubeError),
+    #[error("Error deleting deployment: {0}")]
+    Delete(#[source] KubeError),
+}
+
+#[derive(ThisError, Debug)]
+pub enum PatchError {
+    #[error("Failed to generate deployment: {0}")]
+    Generate(#[source] IntoDeploymentError),
+    #[error("Failed to patch deployment: {0}")]
+    Patch(#[source] KubeError),
+}
+
+#[derive(ThisError, Debug)]
+pub enum ServiceError {
     #[error("Failed to get service: {0}")]
     Get(#[source] KubeError),
     #[error("Failed to get owner reference")]
     OwnerReference,
-    #[error("Failed to generate service: {0}")]
+    #[error("Failed to create service: {0}")]
+    Create(#[source] CreateServiceError),
+    #[error("Failed to check service: {0}")]
+    Check(#[source] CheckServiceError),
+    #[error("Failed to delete service: {0}")]
+    Delete(#[source] DeleteServicesError),
+}
+
+#[derive(ThisError, Debug)]
+pub enum CreateServiceError {
+    #[error("Failed to generate deployment: {0}")]
     Generate(#[source] IntoServiceError),
-    #[error("Failed to apply service: {0}")]
+    #[error("Failed to apply deployment: {0}")]
     Apply(#[source] KubeError),
+}
+
+#[derive(ThisError, Debug)]
+pub enum CheckServiceError {
+    #[error("Error getting status: {0}")]
+    GetStatus(#[source] KubeError),
     #[error("Error setting status: {0}")]
     SetStatus(#[source] StatusError),
+}
+
+#[derive(ThisError, Debug)]
+pub enum DeleteServicesError {
+    #[error("Error listing services: {0}")]
+    List(#[source] KubeError),
+    #[error("Error deleting service: {0}")]
+    Delete(#[source] KubeError),
 }
 
 #[derive(ThisError, Debug)]

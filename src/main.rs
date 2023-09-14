@@ -6,7 +6,7 @@ use tracing_subscriber::EnvFilter;
 
 pub fn init_tracing() {
     if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "openfaas_operato_rs=trace");
+        std::env::set_var("RUST_LOG", "openfaas_operato_rs=debug");
     }
 
     tracing_subscriber::fmt()
