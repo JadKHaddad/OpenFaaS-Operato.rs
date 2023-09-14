@@ -218,9 +218,11 @@ impl OperatorInner {
                 .await
                 .map_err(CheckResourceNamespaceError::SetStatus)?;
 
-            tracing::info!("Requeueing resource.");
+            // tracing::info!("Requeueing resource.");
+            // return Ok(Some(Action::requeue(Duration::from_secs(10))));
 
-            return Ok(Some(Action::requeue(Duration::from_secs(10))));
+            tracing::info!("Awaiting change.");
+            return Ok(Some(Action::await_change()));
         }
 
         Ok(None)
@@ -261,9 +263,11 @@ impl OperatorInner {
                         .await
                         .map_err(CheckFunctionNamespaceError::SetStatus)?;
 
-                    tracing::info!("Requeueing resource.");
+                    // tracing::info!("Requeueing resource.");
+                    // return Ok(Some(Action::requeue(Duration::from_secs(10))));
 
-                    return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                    tracing::info!("Awaiting change.");
+                    return Ok(Some(Action::await_change()));
                 }
             }
         }
@@ -320,9 +324,11 @@ impl OperatorInner {
                                     DeploymentError::Check(CheckDeploymentError::SetStatus(err))
                                 })?;
 
-                            tracing::info!("Requeueing resource.");
+                            // tracing::info!("Requeueing resource.");
+                            // return Ok(Some(Action::requeue(Duration::from_secs(10))));
 
-                            return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                            tracing::info!("Awaiting change.");
+                            return Ok(Some(Action::await_change()));
                         }
                         Some(ref status) => match status.ready_replicas {
                             None => {
@@ -345,9 +351,11 @@ impl OperatorInner {
                                         DeploymentError::Check(CheckDeploymentError::SetStatus(err))
                                     })?;
 
-                                tracing::info!("Requeueing resource.");
+                                // tracing::info!("Requeueing resource.");
+                                // return Ok(Some(Action::requeue(Duration::from_secs(10))));
 
-                                return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                                tracing::info!("Awaiting change.");
+                                return Ok(Some(Action::await_change()));
                             }
                             Some(replicas) => {
                                 tracing::info!(
@@ -374,9 +382,11 @@ impl OperatorInner {
                             DeploymentError::Check(CheckDeploymentError::SetStatus(err))
                         })?;
 
-                    tracing::info!("Requeueing resource.");
+                    // tracing::info!("Requeueing resource.");
+                    // return Ok(Some(Action::requeue(Duration::from_secs(10))));
 
-                    return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                    tracing::info!("Awaiting change.");
+                    return Ok(Some(Action::await_change()));
                 }
 
                 // TODO: Compare deployment
@@ -467,9 +477,11 @@ impl OperatorInner {
                 // reque to ensure deployment is ready before deleting old ones
                 // TODO: Add wait_for_ready_dep_on_name_change var.
 
-                tracing::info!("Requeueing resource.");
+                // tracing::info!("Requeueing resource.");
+                // return Ok(Some(Action::requeue(Duration::from_secs(10))));
 
-                return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                tracing::info!("Awaiting change.");
+                return Ok(Some(Action::await_change()));
             }
         }
 
@@ -563,9 +575,11 @@ impl OperatorInner {
                     .await
                     .map_err(CheckSecretsError::SetStatus)?;
 
-                tracing::info!("Requeueing resource.");
+                // tracing::info!("Requeueing resource.");
+                // return Ok(Some(Action::requeue(Duration::from_secs(10))));
 
-                return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                tracing::info!("Awaiting change.");
+                return Ok(Some(Action::await_change()));
             }
         }
 
@@ -614,9 +628,11 @@ impl OperatorInner {
                         .await
                         .map_err(|err| ServiceError::Check(CheckServiceError::SetStatus(err)))?;
 
-                    tracing::info!("Requeueing resource.");
+                    // tracing::info!("Requeueing resource.");
+                    // return Ok(Some(Action::requeue(Duration::from_secs(10))));
 
-                    return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                    tracing::info!("Awaiting change.");
+                    return Ok(Some(Action::await_change()));
                 }
 
                 // TODO: Compare service
