@@ -399,11 +399,9 @@ impl OperatorInner {
                 if let Some(dep) = crd.spec.patch(deployment) {
                     tracing::info!("Patching.");
 
-                    // TODO: Merge does not remove fields
-                    let patch = Patch::Merge(&dep);
-
+                    // replace removes old values
                     deployment_api
-                        .patch(&deployment_name, &PatchParams::default(), &patch)
+                        .replace(&deployment_name, &PostParams::default(), &dep)
                         .await
                         .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
                 }

@@ -108,8 +108,6 @@ impl OpenFaasFunctionSpec {
         let annotations_in_prev_but_not_in_current =
             utils::collect_missing_keys(prev_spec_meta_annotatios, &current_annotations);
 
-        println!("{:?}", annotations_in_prev_but_not_in_current);
-
         let mut new_annotations = deployment_meta_annotatios.clone();
 
         // insert current annotaions in new annotations and remove annotations that are in prev but not in current
