@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use thiserror::Error as ThisError;
 
 pub const FINALIZER_NAME: &str = "openfaasfunctions.operato.rs/finalizer";
+pub const LAST_APPLIED_ANNOTATION: &str = "openfaasfunctions.operato.rs/last-applied-spec";
 
 #[derive(CustomResource, Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
 #[kube(
@@ -184,9 +185,25 @@ pub enum FunctionSpecIntoDeploymentError {
 }
 
 #[derive(ThisError, Debug)]
-pub enum IntoServiceError {
+pub enum FunctionIntoServiceError {
     #[error("Failed to get owner reference")]
     OwnerReference,
+    #[error("Failed to generate service from spec: {0}")]
+    FunctionSpec(
+        #[source]
+        #[from]
+        FunctionSpecIntoServiceError,
+    ),
+}
+
+#[derive(ThisError, Debug)]
+pub enum FunctionSpecIntoServiceError {
+    #[error("Faild to serialize: {0}")]
+    Serialize(
+        #[source]
+        #[from]
+        serde_json::Error,
+    ),
 }
 
 #[derive(ThisError, Debug)]

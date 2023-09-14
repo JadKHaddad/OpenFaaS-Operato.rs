@@ -1,9 +1,10 @@
 use crate::utils;
 
 use super::defs::{
-    DeploymentDiff, FunctionIntoDeploymentError, FunctionResources, FunctionResourcesQuantity,
-    FunctionSpecIntoDeploymentError, IntoQuantityError, IntoServiceError, OpenFaaSFunction,
-    OpenFaasFunctionErrorStatus, OpenFaasFunctionOkStatus, OpenFaasFunctionSpec, ServiceDiff,
+    DeploymentDiff, FunctionIntoDeploymentError, FunctionIntoServiceError, FunctionResources,
+    FunctionResourcesQuantity, FunctionSpecIntoDeploymentError, FunctionSpecIntoServiceError,
+    IntoQuantityError, OpenFaaSFunction, OpenFaasFunctionErrorStatus, OpenFaasFunctionOkStatus,
+    OpenFaasFunctionSpec, ServiceDiff, LAST_APPLIED_ANNOTATION,
 };
 use itertools::Itertools;
 use k8s_openapi::{
@@ -21,9 +22,8 @@ use k8s_openapi::{
 };
 use kube::core::{CustomResourceExt, ObjectMeta, Resource};
 use kube_quantity::ParsedQuantity;
+use serde_json::Error as SerdeJsonError;
 use std::{collections::BTreeMap, fmt::Display};
-
-const LAST_APPLIED_ANNOTATION: &str = "kubectl.kubernetes.io/last-applied-spec";
 
 impl Display for OpenFaasFunctionOkStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -99,6 +99,8 @@ impl OpenFaasFunctionSpec {
         unimplemented!()
     }
 
+    // some self.annotaions are not the same in the dep -> add
+    // or some prev(self.annotions) are not in the new but still in dep -> remove
     // fn meta_labels_need_patch(&self, deployment: &Deployment) -> bool {
     //     let meta_labels = self.to_meta_labels();
 
@@ -294,6 +296,21 @@ impl OpenFaasFunctionSpec {
         self.annotations.clone().map(|a| a.into_iter().collect())
     }
 
+    fn to_meta_annotations(&self) -> Result<BTreeMap<String, String>, SerdeJsonError> {
+        let mut meta_annotaions = BTreeMap::new();
+
+        if let Some(annotations) = self.to_annotations() {
+            meta_annotaions.extend(annotations);
+        }
+
+        meta_annotaions.insert(
+            String::from(LAST_APPLIED_ANNOTATION),
+            serde_json::to_string(self)?,
+        );
+
+        Ok(meta_annotaions)
+    }
+
     fn to_node_selector(&self) -> Option<BTreeMap<String, String>> {
         let constraints = self.get_constraints_vec();
 
@@ -317,17 +334,17 @@ impl OpenFaasFunctionSpec {
         Some(node_selector)
     }
 
-    fn to_deployment_meta(&self) -> ObjectMeta {
-        ObjectMeta {
+    fn to_deployment_meta(&self) -> Result<ObjectMeta, SerdeJsonError> {
+        Ok(ObjectMeta {
             name: Some(self.to_name()),
             namespace: self.to_namespace(),
             labels: Some(self.to_meta_labels()),
-            annotations: self.to_annotations(),
+            annotations: Some(self.to_meta_annotations()?),
             ..Default::default()
-        }
+        })
     }
 
-    fn to_service_meta(&self) -> ObjectMeta {
+    fn to_service_meta(&self) -> Result<ObjectMeta, SerdeJsonError> {
         self.to_deployment_meta()
     }
 
@@ -741,21 +758,11 @@ impl TryFrom<&OpenFaasFunctionSpec> for Deployment {
     type Error = FunctionSpecIntoDeploymentError;
 
     fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
-        let mut deployment = Deployment {
-            metadata: value.to_deployment_meta(),
+        let deployment = Deployment {
+            metadata: value.to_deployment_meta()?,
             spec: Option::<DeploymentSpec>::try_from(value)?,
             ..Default::default()
         };
-
-        // inject last applied config annotation
-        deployment
-            .metadata
-            .annotations
-            .get_or_insert_with(BTreeMap::new)
-            .insert(
-                String::from(LAST_APPLIED_ANNOTATION),
-                serde_json::to_string(value)?,
-            );
 
         Ok(deployment)
     }
@@ -802,13 +809,15 @@ impl From<&OpenFaasFunctionSpec> for Option<ServiceSpec> {
 }
 
 /// Generate a fresh service
-impl From<&OpenFaasFunctionSpec> for Service {
-    fn from(value: &OpenFaasFunctionSpec) -> Self {
-        Service {
-            metadata: value.to_service_meta(),
+impl TryFrom<&OpenFaasFunctionSpec> for Service {
+    type Error = FunctionSpecIntoServiceError;
+
+    fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
+        Ok(Service {
+            metadata: value.to_service_meta()?,
             spec: Option::<ServiceSpec>::from(value),
             ..Default::default()
-        }
+        })
     }
 }
 
@@ -847,14 +856,14 @@ impl TryFrom<&OpenFaaSFunction> for Deployment {
 
 /// Generate a fresh service with refs
 impl TryFrom<&OpenFaaSFunction> for Service {
-    type Error = IntoServiceError;
+    type Error = FunctionIntoServiceError;
 
     fn try_from(value: &OpenFaaSFunction) -> Result<Self, Self::Error> {
         let oref = value
             .controller_owner_ref(&())
-            .ok_or(IntoServiceError::OwnerReference)?;
+            .ok_or(FunctionIntoServiceError::OwnerReference)?;
 
-        let mut svc = Service::from(&value.spec);
+        let mut svc = Service::try_from(&value.spec)?;
 
         svc.metadata.owner_references = Some(vec![oref]);
 

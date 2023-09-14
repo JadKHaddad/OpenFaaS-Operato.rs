@@ -1,4 +1,6 @@
-use crate::crds::defs::{FunctionIntoDeploymentError, IntoServiceError, OpenFaasFunctionStatus};
+use crate::crds::defs::{
+    FunctionIntoDeploymentError, FunctionIntoServiceError, OpenFaasFunctionStatus,
+};
 use kube::{runtime::finalizer::Error as FinalizerError, Error as KubeError};
 use thiserror::Error as ThisError;
 
@@ -135,7 +137,7 @@ pub enum ServiceError {
 #[derive(ThisError, Debug)]
 pub enum CreateServiceError {
     #[error("Failed to generate deployment: {0}")]
-    Generate(#[source] IntoServiceError),
+    Generate(#[source] FunctionIntoServiceError),
     #[error("Failed to apply deployment: {0}")]
     Apply(#[source] KubeError),
 }
