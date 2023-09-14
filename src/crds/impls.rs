@@ -8,7 +8,7 @@ use super::defs::{
 use itertools::Itertools;
 use k8s_openapi::{
     api::{
-        apps::v1::{Deployment, DeploymentSpec},
+        apps::v1::{Deployment, DeploymentSpec, DeploymentStrategy, RollingUpdateDeployment},
         core::v1::{
             Container, ContainerPort, EnvVar, HTTPGetAction, KeyToPath, PodSpec, PodTemplateSpec,
             Probe, ProjectedVolumeSource, ResourceRequirements, SecretProjection, SecurityContext,
@@ -549,6 +549,36 @@ impl From<&OpenFaasFunctionSpec> for LabelSelector {
     }
 }
 
+impl From<&OpenFaasFunctionSpec> for RollingUpdateDeployment {
+    fn from(_value: &OpenFaasFunctionSpec) -> Self {
+        RollingUpdateDeployment {
+            max_surge: Some(IntOrString::Int(1)),
+            max_unavailable: Some(IntOrString::Int(0)),
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Option<RollingUpdateDeployment> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        Some(RollingUpdateDeployment::from(value))
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for DeploymentStrategy {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        DeploymentStrategy {
+            rolling_update: Option::<RollingUpdateDeployment>::from(value),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionSpec> for Option<DeploymentStrategy> {
+    fn from(value: &OpenFaasFunctionSpec) -> Self {
+        Some(DeploymentStrategy::from(value))
+    }
+}
+
 impl TryFrom<&OpenFaasFunctionSpec> for PodTemplateSpec {
     type Error = IntoQuantityError;
 
@@ -567,6 +597,7 @@ impl TryFrom<&OpenFaasFunctionSpec> for DeploymentSpec {
         Ok(DeploymentSpec {
             replicas: Some(1),
             selector: LabelSelector::from(value),
+            strategy: Option::<DeploymentStrategy>::from(value),
             template: PodTemplateSpec::try_from(value)?,
             ..Default::default()
         })
