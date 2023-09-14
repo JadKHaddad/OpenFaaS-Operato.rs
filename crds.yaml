@@ -114,6 +114,8 @@ spec:
                 enum:
                 - InvalidCRDNamespace
                 - InvalidFunctionNamespace
+                - CPUQuantity
+                - MemoryQuantity
                 - DeploymentAlreadyExists
                 - DeploymentNotReady
                 - ServiceAlreadyExists
@@ -121,7 +123,6 @@ spec:
                 type: string
               Ok:
                 enum:
-                - Deployed
                 - Ready
                 type: string
             type: object

@@ -344,7 +344,7 @@ impl OperatorInner {
                             Some(replicas) => {
                                 tracing::info!(
                                     replicas,
-                                    "Deployment has available replicas. Assuming ready."
+                                    "Deployment has {replicas} ready replica(s). Assuming ready."
                                 );
                             }
                         },
@@ -383,13 +383,43 @@ impl OperatorInner {
                 {
                     return Ok(Some(action));
                 }
-                // TODO: Now here we could get an IntoDeploymentError::Quantity
-                // TODO: so maybe we should set the status to Err(Quantity) and propagate the error
-                let deployment = Deployment::try_from(crd).map_err(DeploymentError::Generate)?;
-                deployment_api
-                    .create(&PostParams::default(), &deployment)
-                    .await
-                    .map_err(DeploymentError::Apply)?;
+
+                match Deployment::try_from(crd) {
+                    Ok(deployment) => {
+                        tracing::info!("Deployment generated. Creating.");
+
+                        deployment_api
+                            .create(&PostParams::default(), &deployment)
+                            .await
+                            .map_err(DeploymentError::Apply)?;
+                    }
+                    Err(error) => {
+                        tracing::error!(%error, "Failed to generate deployment.");
+
+                        // Now we set the status and propagate the error
+                        match Option::<OpenFaasFunctionErrorStatus>::from(&error) {
+                            Some(error_status) => {
+                                tracing::debug!(%error, "Error can be converted to status.");
+
+                                let mut crd_with_status = api
+                                    .get_status(&name)
+                                    .await
+                                    .map_err(DeploymentError::GetStatus)?;
+
+                                let status = OpenFaasFunctionStatus::Err(error_status);
+
+                                self.replace_status(&mut crd_with_status, status)
+                                    .await
+                                    .map_err(DeploymentError::SetStatus)?;
+                            }
+                            None => {
+                                tracing::debug!(%error, "Error cannot be converted to status. Skipping.");
+                            }
+                        }
+
+                        return Err(DeploymentError::Generate(error));
+                    }
+                }
 
                 tracing::info!("Deployment created.");
             }

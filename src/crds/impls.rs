@@ -2,8 +2,8 @@ use crate::utils;
 
 use super::defs::{
     DeploymentDiff, FunctionResources, FunctionResourcesQuantity, IntoDeploymentError,
-    IntoQuantityError, IntoServiceError, OpenFaaSFunction, OpenFaasFunctionOkStatus,
-    OpenFaasFunctionSpec, ServiceDiff,
+    IntoQuantityError, IntoServiceError, OpenFaaSFunction, OpenFaasFunctionErrorStatus,
+    OpenFaasFunctionOkStatus, OpenFaasFunctionSpec, ServiceDiff,
 };
 use itertools::Itertools;
 use k8s_openapi::{
@@ -675,5 +675,17 @@ impl TryFrom<&OpenFaaSFunction> for Service {
         svc.metadata.owner_references = Some(vec![oref]);
 
         Ok(svc)
+    }
+}
+
+impl From<&IntoDeploymentError> for Option<OpenFaasFunctionErrorStatus> {
+    fn from(e: &IntoDeploymentError) -> Self {
+        match e {
+            IntoDeploymentError::OwnerReference => None,
+            IntoDeploymentError::Quantity(e) => match e {
+                IntoQuantityError::Memory(_) => Some(OpenFaasFunctionErrorStatus::MemoryQuantity),
+                IntoQuantityError::CPU(_) => Some(OpenFaasFunctionErrorStatus::CPUQuantity),
+            },
+        }
     }
 }

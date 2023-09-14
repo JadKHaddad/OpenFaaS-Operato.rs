@@ -74,8 +74,6 @@ pub enum DeploymentError {
     Secrets(#[source] CheckSecretsError),
     #[error("Failed to get owner reference")]
     OwnerReference,
-    #[error("Deployment is not ready")]
-    NotReady,
     #[error("Failed to generate deployment: {0}")]
     Generate(#[source] IntoDeploymentError),
     #[error("Failed to apply deployment: {0}")]

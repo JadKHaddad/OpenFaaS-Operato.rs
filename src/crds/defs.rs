@@ -93,15 +93,19 @@ pub enum OpenFaasFunctionOkStatus {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema, ThisError)]
 pub enum OpenFaasFunctionErrorStatus {
-    #[error("The CRD namespace does not match the functions namespace")]
+    #[error("The CRD's namespace does not match the functions namespace")]
     InvalidCRDNamespace,
-    #[error("The function namespace does not match the functions namespace")]
+    #[error("The function's namespace does not match the functions namespace")]
     InvalidFunctionNamespace,
-    #[error("The function deployment already deployed by third party")]
+    #[error("A function's cpu quantity is invalid")]
+    CPUQuantity,
+    #[error("A function's memory quantity is invalid")]
+    MemoryQuantity,
+    #[error("The function's deployment already deployed by third party")]
     DeploymentAlreadyExists,
-    #[error("The function deployment is not ready")]
+    #[error("The function's deployment is not ready")]
     DeploymentNotReady,
-    #[error("The function service already deployed by third party")]
+    #[error("The function's service already deployed by third party")]
     ServiceAlreadyExists,
     #[error("The given secrets to mount do not exist")]
     SecretsNotFound,
@@ -148,17 +152,6 @@ pub enum ResourceDiff {
 }
 
 pub enum ServiceDiff {}
-
-// TODO: Now this one can be like this
-// Input errors set a status and return an error
-
-// #[derive(ThisError, Debug)]
-// pub enum IntoDeploymentError {
-//     #[error("...")]
-//     ControllerError(...), like OwnerReference or something
-//     #[error("...")]
-//     IputError(...), like Quantity or something
-// }
 
 #[derive(ThisError, Debug)]
 pub enum IntoDeploymentError {
