@@ -115,6 +115,7 @@ spec:
                 - InvalidCRDNamespace
                 - InvalidFunctionNamespace
                 - DeploymentAlreadyExists
+                - DeploymentNotReady
                 - ServiceAlreadyExists
                 - SecretsNotFound
                 type: string

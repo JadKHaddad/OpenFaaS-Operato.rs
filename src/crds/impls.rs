@@ -20,16 +20,14 @@ use k8s_openapi::{
     },
 };
 use kube::core::{CustomResourceExt, ObjectMeta, Resource};
+use kube_quantity::ParsedQuantity;
 use std::{collections::BTreeMap, fmt::Display};
 
 impl Display for OpenFaasFunctionOkStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OpenFaasFunctionOkStatus::Deployed => {
-                write!(f, "Deployment and service are deployed by the operator")
-            }
             OpenFaasFunctionOkStatus::Ready => {
-                write!(f, "Deployment is ready. Service has the correct endpoints")
+                write!(f, "Deployment is ready")
             }
         }
     }
@@ -60,6 +58,28 @@ impl FunctionResourcesQuantity {
         }
 
         Some(resources)
+    }
+}
+
+impl TryFrom<&FunctionResources> for FunctionResourcesQuantity {
+    type Error = IntoQuantityError;
+
+    fn try_from(value: &FunctionResources) -> Result<Self, Self::Error> {
+        let memory: Option<Quantity> = value
+            .memory
+            .clone()
+            .map(|m| ParsedQuantity::try_from(m).map_err(IntoQuantityError::Memory))
+            .transpose()?
+            .map(|m| m.into());
+
+        let cpu: Option<Quantity> = value
+            .cpu
+            .clone()
+            .map(|m| ParsedQuantity::try_from(m).map_err(IntoQuantityError::CPU))
+            .transpose()?
+            .map(|m| m.into());
+
+        Ok(Self { memory, cpu })
     }
 }
 

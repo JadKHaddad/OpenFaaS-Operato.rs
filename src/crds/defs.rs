@@ -1,6 +1,6 @@
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use kube::CustomResource;
-use kube_quantity::{ParseQuantityError, ParsedQuantity};
+use kube_quantity::ParseQuantityError;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -80,28 +80,6 @@ pub struct FunctionResourcesQuantity {
     pub cpu: Option<Quantity>,
 }
 
-impl TryFrom<&FunctionResources> for FunctionResourcesQuantity {
-    type Error = IntoQuantityError;
-
-    fn try_from(value: &FunctionResources) -> Result<Self, Self::Error> {
-        let memory: Option<Quantity> = value
-            .memory
-            .clone()
-            .map(|m| ParsedQuantity::try_from(m).map_err(IntoQuantityError::Memory))
-            .transpose()?
-            .map(|m| m.into());
-
-        let cpu: Option<Quantity> = value
-            .cpu
-            .clone()
-            .map(|m| ParsedQuantity::try_from(m).map_err(IntoQuantityError::CPU))
-            .transpose()?
-            .map(|m| m.into());
-
-        Ok(Self { memory, cpu })
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
 pub enum OpenFaasFunctionStatus {
     Ok(OpenFaasFunctionOkStatus),
@@ -110,7 +88,6 @@ pub enum OpenFaasFunctionStatus {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
 pub enum OpenFaasFunctionOkStatus {
-    Deployed,
     Ready,
 }
 
@@ -122,6 +99,8 @@ pub enum OpenFaasFunctionErrorStatus {
     InvalidFunctionNamespace,
     #[error("The function deployment already deployed by third party")]
     DeploymentAlreadyExists,
+    #[error("The function deployment is not ready")]
+    DeploymentNotReady,
     #[error("The function service already deployed by third party")]
     ServiceAlreadyExists,
     #[error("The given secrets to mount do not exist")]

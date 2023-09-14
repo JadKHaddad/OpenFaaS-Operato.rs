@@ -24,9 +24,9 @@ spec:
     - s2accesskey
   readOnlyRootFilesystem: true
   limits:
-    cpu: "2m"
-    memory: "5Mi"
+    cpu: "10m"
+    memory: "30Mi"
   requests:
-    cpu: "2m"
-    memory: "5Mi"
+    cpu: "10m"
+    memory: "30Mi"
 # kubectl describe openfaasfunctions -n openfaas-fn nodeinfo

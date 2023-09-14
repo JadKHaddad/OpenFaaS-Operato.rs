@@ -126,7 +126,7 @@ impl OperatorInner {
         }
 
         if let Some(action) = self
-            .set_deployed_status(&crd)
+            .set_ready_status(&crd)
             .instrument(trace_span!("SetDeployedStatus"))
             .await
             .map_err(ApplyError::Status)?
@@ -294,7 +294,62 @@ impl OperatorInner {
 
                 let deployment_orefs = deployment.owner_references();
 
-                if !deployment_orefs.contains(&crd_oref) {
+                if deployment_orefs.contains(&crd_oref) {
+                    tracing::info!("Deployment has owner reference. Checking if ready.");
+
+                    match deployment.status {
+                        None => {
+                            tracing::info!("Deployment has no status. Assuming not ready.");
+
+                            let mut crd_with_status = api
+                                .get_status(&name)
+                                .await
+                                .map_err(DeploymentError::GetStatus)?;
+
+                            let status = OpenFaasFunctionStatus::Err(
+                                OpenFaasFunctionErrorStatus::DeploymentNotReady,
+                            );
+
+                            self.replace_status(&mut crd_with_status, status)
+                                .await
+                                .map_err(DeploymentError::SetStatus)?;
+
+                            tracing::info!("Requeueing resource.");
+
+                            return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                        }
+                        Some(status) => match status.ready_replicas {
+                            None => {
+                                tracing::info!(
+                                    "Deployment has no ready replicas. Assuming not ready."
+                                );
+
+                                let mut crd_with_status = api
+                                    .get_status(&name)
+                                    .await
+                                    .map_err(DeploymentError::GetStatus)?;
+
+                                let status = OpenFaasFunctionStatus::Err(
+                                    OpenFaasFunctionErrorStatus::DeploymentNotReady,
+                                );
+
+                                self.replace_status(&mut crd_with_status, status)
+                                    .await
+                                    .map_err(DeploymentError::SetStatus)?;
+
+                                tracing::info!("Requeueing resource.");
+
+                                return Ok(Some(Action::requeue(Duration::from_secs(10))));
+                            }
+                            Some(replicas) => {
+                                tracing::info!(
+                                    replicas,
+                                    "Deployment has available replicas. Assuming ready."
+                                );
+                            }
+                        },
+                    }
+                } else {
                     tracing::error!("Deployment does not have owner reference.");
 
                     let mut crd_with_status = api
@@ -457,7 +512,7 @@ impl OperatorInner {
         Ok(None)
     }
 
-    async fn set_deployed_status(
+    async fn set_ready_status(
         &self,
         crd: &OpenFaaSFunction,
     ) -> Result<Option<Action>, DeployedStatusError> {
@@ -471,7 +526,7 @@ impl OperatorInner {
             .await
             .map_err(DeployedStatusError::GetStatus)?;
 
-        let status = OpenFaasFunctionStatus::Ok(OpenFaasFunctionOkStatus::Deployed);
+        let status = OpenFaasFunctionStatus::Ok(OpenFaasFunctionOkStatus::Ready);
 
         self.replace_status(&mut crd_with_status, status)
             .await
