@@ -1,9 +1,9 @@
 use crate::utils;
 
 use super::defs::{
-    DeploymentDiff, FunctionResources, FunctionResourcesQuantity, IntoDeploymentError,
-    IntoQuantityError, IntoServiceError, OpenFaaSFunction, OpenFaasFunctionErrorStatus,
-    OpenFaasFunctionOkStatus, OpenFaasFunctionSpec, ServiceDiff,
+    DeploymentDiff, FunctionIntoDeploymentError, FunctionResources, FunctionResourcesQuantity,
+    FunctionSpecIntoDeploymentError, IntoQuantityError, IntoServiceError, OpenFaaSFunction,
+    OpenFaasFunctionErrorStatus, OpenFaasFunctionOkStatus, OpenFaasFunctionSpec, ServiceDiff,
 };
 use itertools::Itertools;
 use k8s_openapi::{
@@ -19,12 +19,11 @@ use k8s_openapi::{
         api::resource::Quantity, apis::meta::v1::LabelSelector, util::intstr::IntOrString,
     },
 };
-use kube::{
-    api::Patch,
-    core::{CustomResourceExt, ObjectMeta, Resource},
-};
+use kube::core::{CustomResourceExt, ObjectMeta, Resource};
 use kube_quantity::ParsedQuantity;
 use std::{collections::BTreeMap, fmt::Display};
+
+const LAST_APPLIED_ANNOTATION: &str = "kubectl.kubernetes.io/last-applied-spec";
 
 impl Display for OpenFaasFunctionOkStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -99,6 +98,131 @@ impl OpenFaasFunctionSpec {
         // secrets_mount_path
         unimplemented!()
     }
+
+    // fn meta_labels_need_patch(&self, deployment: &Deployment) -> bool {
+    //     let meta_labels = self.to_meta_labels();
+
+    //     let deployment_meta_labels = deployment.metadata.clone().labels.unwrap_or_default();
+
+    //     for (k, v) in meta_labels.iter() {
+    //         let dep_v = deployment_meta_labels.get(k);
+    //         if let Some(dep_v) = dep_v {
+    //             if v != dep_v {
+    //                 tracing::debug!("Meta label not found: {}={}", k, v);
+    //                 return true;
+    //             }
+    //         } else {
+    //             tracing::debug!("Meta label not found: {}={}", k, v);
+    //             return true;
+    //         }
+    //     }
+
+    //     false
+    // }
+
+    // fn spec_meta_labels_needs_patch(&self, deployment: &Deployment) -> bool {
+    //     let spec_meta_labels = self.to_spec_meta_labels();
+
+    //     let deployment_spec_meta_labels = deployment
+    //         .spec
+    //         .clone()
+    //         .unwrap_or_default()
+    //         .template
+    //         .metadata
+    //         .unwrap_or_default()
+    //         .labels
+    //         .unwrap_or_default();
+
+    //     for (k, v) in spec_meta_labels.iter() {
+    //         let dep_v = deployment_spec_meta_labels.get(k);
+    //         if let Some(dep_v) = dep_v {
+    //             if v != dep_v {
+    //                 tracing::debug!("Spec meta label not found: {}={}", k, v);
+    //                 return true;
+    //             }
+    //         } else {
+    //             tracing::debug!("Spec meta label not found: {}={}", k, v);
+    //             return true;
+    //         }
+    //     }
+
+    //     false
+    // }
+
+    // fn meta_annotations_need_patch(&self, deployment: &Deployment) -> bool {
+    //     let meta_annotations = self.to_annotations().unwrap_or_default();
+
+    //     let deployment_meta_annotations =
+    //         deployment.metadata.clone().annotations.unwrap_or_default();
+
+    //     for (k, v) in meta_annotations.iter() {
+    //         let dep_v = deployment_meta_annotations.get(k);
+    //         if let Some(dep_v) = dep_v {
+    //             if v != dep_v {
+    //                 tracing::debug!("Meta annotation not found: {}={}", k, v);
+    //                 return true;
+    //             }
+    //         } else {
+    //             tracing::debug!("Meta annotation not found: {}={}", k, v);
+    //             return true;
+    //         }
+    //     }
+
+    //     false
+    // }
+
+    // fn spec_meta_annotations_need_patch(&self, deployment: &Deployment) -> bool {
+    //     let spec_meta_annotations = self.to_annotations().unwrap_or_default();
+
+    //     let deployment_spec_meta_annotations = deployment
+    //         .spec
+    //         .clone()
+    //         .unwrap_or_default()
+    //         .template
+    //         .metadata
+    //         .unwrap_or_default()
+    //         .annotations
+    //         .unwrap_or_default();
+
+    //     for (k, v) in spec_meta_annotations.iter() {
+    //         let dep_v = deployment_spec_meta_annotations.get(k);
+    //         if let Some(dep_v) = dep_v {
+    //             if v != dep_v {
+    //                 tracing::debug!("Spec meta annotation not found: {}={}", k, v);
+    //                 return true;
+    //             }
+    //         } else {
+    //             tracing::debug!("Spec meta annotation not found: {}={}", k, v);
+    //             return true;
+    //         }
+    //     }
+
+    //     false
+    // }
+
+    // pub fn deplyoment_needs_patch(&self, deployment: &Deployment) -> bool {
+    //     if self.meta_labels_need_patch(deployment) {
+    //         tracing::info!("Meta labels need patch");
+    //         return true;
+    //     }
+
+    //     if self.spec_meta_labels_needs_patch(deployment) {
+    //         tracing::info!("Spec meta labels need patch");
+    //         return true;
+    //     }
+
+    //     if self.meta_annotations_need_patch(deployment) {
+    //         tracing::info!("Meta annotations need patch");
+    //         return true;
+    //     }
+
+    //     if self.spec_meta_annotations_need_patch(deployment) {
+    //         tracing::info!("Spec meta annotations need patch");
+    //         return true;
+    //     }
+
+    //     false
+    // }
 
     pub fn deployment_diffs(&self, deployment: &Deployment) -> Vec<DeploymentDiff> {
         unimplemented!()
@@ -614,14 +738,26 @@ impl TryFrom<&OpenFaasFunctionSpec> for Option<DeploymentSpec> {
 
 /// Generate a fresh deployment
 impl TryFrom<&OpenFaasFunctionSpec> for Deployment {
-    type Error = IntoQuantityError;
+    type Error = FunctionSpecIntoDeploymentError;
 
     fn try_from(value: &OpenFaasFunctionSpec) -> Result<Self, Self::Error> {
-        Ok(Deployment {
+        let mut deployment = Deployment {
             metadata: value.to_deployment_meta(),
             spec: Option::<DeploymentSpec>::try_from(value)?,
             ..Default::default()
-        })
+        };
+
+        // inject last applied config annotation
+        deployment
+            .metadata
+            .annotations
+            .get_or_insert_with(BTreeMap::new)
+            .insert(
+                String::from(LAST_APPLIED_ANNOTATION),
+                serde_json::to_string(value)?,
+            );
+
+        Ok(deployment)
     }
 }
 
@@ -693,14 +829,15 @@ impl OpenFaaSFunction {
 
 /// Generate a fresh deployment with refs
 impl TryFrom<&OpenFaaSFunction> for Deployment {
-    type Error = IntoDeploymentError;
+    type Error = FunctionIntoDeploymentError;
 
     fn try_from(value: &OpenFaaSFunction) -> Result<Self, Self::Error> {
         let oref = value
             .controller_owner_ref(&())
-            .ok_or(IntoDeploymentError::OwnerReference)?;
+            .ok_or(FunctionIntoDeploymentError::OwnerReference)?;
 
-        let mut dep = Deployment::try_from(&value.spec).map_err(IntoDeploymentError::Quantity)?;
+        let mut dep =
+            Deployment::try_from(&value.spec).map_err(FunctionIntoDeploymentError::FunctionSpec)?;
 
         dep.metadata.owner_references = Some(vec![oref]);
 
@@ -725,14 +862,16 @@ impl TryFrom<&OpenFaaSFunction> for Service {
     }
 }
 
-impl From<&IntoDeploymentError> for Option<OpenFaasFunctionErrorStatus> {
-    fn from(e: &IntoDeploymentError) -> Self {
+impl From<&FunctionIntoDeploymentError> for Option<OpenFaasFunctionErrorStatus> {
+    fn from(e: &FunctionIntoDeploymentError) -> Self {
         match e {
-            IntoDeploymentError::OwnerReference => None,
-            IntoDeploymentError::Quantity(e) => match e {
+            FunctionIntoDeploymentError::FunctionSpec(
+                FunctionSpecIntoDeploymentError::Quantity(e),
+            ) => match e {
                 IntoQuantityError::Memory(_) => Some(OpenFaasFunctionErrorStatus::MemoryQuantity),
                 IntoQuantityError::CPU(_) => Some(OpenFaasFunctionErrorStatus::CPUQuantity),
             },
+            _ => None,
         }
     }
 }

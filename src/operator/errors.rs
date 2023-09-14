@@ -1,4 +1,4 @@
-use crate::crds::defs::{IntoDeploymentError, IntoServiceError, OpenFaasFunctionStatus};
+use crate::crds::defs::{FunctionIntoDeploymentError, IntoServiceError, OpenFaasFunctionStatus};
 use kube::{runtime::finalizer::Error as FinalizerError, Error as KubeError};
 use thiserror::Error as ThisError;
 
@@ -93,7 +93,7 @@ pub enum CreateDeploymentError {
     #[error("Failed to check secrets: {0}")]
     Secrets(#[source] CheckSecretsError),
     #[error("Failed to generate deployment: {0}")]
-    Generate(#[source] IntoDeploymentError),
+    Generate(#[source] FunctionIntoDeploymentError),
     #[error("Failed to apply deployment: {0}")]
     Apply(#[source] KubeError),
     #[error("Error getting status: {0}")]
@@ -113,7 +113,7 @@ pub enum DeleteDeploymentsError {
 #[derive(ThisError, Debug)]
 pub enum PatchError {
     #[error("Failed to generate deployment: {0}")]
-    Generate(#[source] IntoDeploymentError),
+    Generate(#[source] FunctionIntoDeploymentError),
     #[error("Failed to patch deployment: {0}")]
     Patch(#[source] KubeError),
 }

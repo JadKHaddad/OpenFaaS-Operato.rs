@@ -385,23 +385,22 @@ impl OperatorInner {
                 // needs_patch?
                 // else ok!
 
-                // FIXME PATCHING TEST must check needs_patch
-                // Cehck if needs recreate, if not just patch!
-                // tracing::info!("Patching.");
-                // let mut deployment_ = deployment.clone();
-                // let p = crd.spec.patch(&mut deployment_);
+                // tracing::info!("Comparing deployment for patches.");
+                // if crd.spec.deplyoment_needs_patch(&deployment) {
+                //     tracing::info!("Patching.");
 
-                // let crd_dep = Deployment::try_from(crd)
-                //     .map_err(|err| DeploymentError::Patch(PatchError::Generate(err)))?;
+                //     let crd_dep = Deployment::try_from(crd)
+                //         .map_err(|err| DeploymentError::Patch(PatchError::Generate(err)))?;
 
-                // let patch = Patch::Merge(&crd_dep);
+                //     let patch = Patch::Merge(&crd_dep);
 
-                // deployment_api
-                //     .patch(&deployment_name, &PatchParams::default(), &patch)
-                //     .await
-                //     .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
-
-                // FIXME END OF PATCHING TEST
+                //     deployment_api
+                //         .patch(&deployment_name, &PatchParams::default(), &patch)
+                //         .await
+                //         .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
+                // } else {
+                //     tracing::info!("Deployment is up to date.");
+                // }
             }
             // TODO: CreateDeploymentError: can be moved to func
             None => {

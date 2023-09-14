@@ -156,11 +156,31 @@ pub enum ResourceDiff {
 pub enum ServiceDiff {}
 
 #[derive(ThisError, Debug)]
-pub enum IntoDeploymentError {
+pub enum FunctionIntoDeploymentError {
     #[error("Failed to get owner reference")]
     OwnerReference,
+    #[error("Failed to generate deployment from spec: {0}")]
+    FunctionSpec(
+        #[source]
+        #[from]
+        FunctionSpecIntoDeploymentError,
+    ),
+}
+
+#[derive(ThisError, Debug)]
+pub enum FunctionSpecIntoDeploymentError {
+    #[error("Faild to serialize: {0}")]
+    Serialize(
+        #[source]
+        #[from]
+        serde_json::Error,
+    ),
     #[error("Failed to parse quantity: {0} | Quantity must match ^([+-]?[0-9.]+)([eEinumkKMGTP][-+]?[0-9])$")]
-    Quantity(#[from] IntoQuantityError),
+    Quantity(
+        #[source]
+        #[from]
+        IntoQuantityError,
+    ),
 }
 
 #[derive(ThisError, Debug)]

@@ -10,11 +10,11 @@ spec:
   # constraints:
   #   - "node.platform.os == linux"
   labels:
-    label: "value"
-    label2: "value2"
+    label: "value19"
+    label2: "value"
     label3: "value3"
   annotations:
-    annotation: "value"
+    annotation: "Annno!"
     annotation2: "value2"
     annotation3: "value3"
   envVars:
