@@ -11,6 +11,7 @@ use k8s_openapi::api::{
     apps::v1::Deployment,
     core::v1::{Secret, Service},
 };
+use kube::api::{DeleteParams, Patch, PatchParams};
 use kube::{
     api::{ListParams, PostParams},
     runtime::{controller::Action, finalizer::Event, watcher::Config},
@@ -275,22 +276,23 @@ impl OperatorInner {
     ) -> Result<Option<Action>, DeploymentError> {
         tracing::info!("Checking if deployment exists.");
 
-        let name = crd.name_any();
+        let crd_name = crd.name_any();
+        let deployment_name = crd.spec.to_name();
         let api = &self.api;
         let deployment_api = &self.deployment_api;
 
         let deployment_opt = deployment_api
-            .get_opt(&name)
+            .get_opt(&deployment_name)
             .await
             .map_err(DeploymentError::Get)?;
+
+        let crd_oref = crd
+            .controller_owner_ref(&())
+            .ok_or(DeploymentError::OwnerReference)?;
 
         match deployment_opt {
             Some(deployment) => {
                 tracing::info!("Deployment exists. Comparing.");
-
-                let crd_oref = crd
-                    .controller_owner_ref(&())
-                    .ok_or(DeploymentError::OwnerReference)?;
 
                 let deployment_orefs = deployment.owner_references();
 
@@ -302,7 +304,7 @@ impl OperatorInner {
                             tracing::info!("Deployment has no status. Assuming not ready.");
 
                             let mut crd_with_status = api
-                                .get_status(&name)
+                                .get_status(&crd_name)
                                 .await
                                 .map_err(DeploymentError::GetStatus)?;
 
@@ -318,14 +320,14 @@ impl OperatorInner {
 
                             return Ok(Some(Action::requeue(Duration::from_secs(10))));
                         }
-                        Some(status) => match status.ready_replicas {
+                        Some(ref status) => match status.ready_replicas {
                             None => {
                                 tracing::info!(
                                     "Deployment has no ready replicas. Assuming not ready."
                                 );
 
                                 let mut crd_with_status = api
-                                    .get_status(&name)
+                                    .get_status(&crd_name)
                                     .await
                                     .map_err(DeploymentError::GetStatus)?;
 
@@ -353,7 +355,7 @@ impl OperatorInner {
                     tracing::error!("Deployment does not have owner reference.");
 
                     let mut crd_with_status = api
-                        .get_status(&name)
+                        .get_status(&crd_name)
                         .await
                         .map_err(DeploymentError::GetStatus)?;
 
@@ -371,6 +373,22 @@ impl OperatorInner {
                 }
 
                 // TODO: Compare deployment
+
+                // FIXME PATCHING TEST
+                // Cehck if needs recreate, if not just patch!
+                tracing::info!("Patching.");
+                // let mut deployment_ = deployment.clone();
+                // let p = crd.spec.patch(&mut deployment_);
+
+                let crd_dep = Deployment::try_from(crd).unwrap();
+                let patch = Patch::Merge(&crd_dep);
+
+                deployment_api
+                    .patch(&deployment_name, &PatchParams::default(), &patch)
+                    .await
+                    .map_err(DeploymentError::Apply)?;
+
+                // FIXME END OF PATCHING TEST
             }
             None => {
                 tracing::info!("Deployment does not exist. Creating.");
@@ -402,7 +420,7 @@ impl OperatorInner {
                                 tracing::debug!(%error, "Error can be converted to status.");
 
                                 let mut crd_with_status = api
-                                    .get_status(&name)
+                                    .get_status(&crd_name)
                                     .await
                                     .map_err(DeploymentError::GetStatus)?;
 
@@ -422,8 +440,43 @@ impl OperatorInner {
                 }
 
                 tracing::info!("Deployment created.");
+
+                // reque to ensure deployment is ready before deleting old ones
+
+                tracing::info!("Requeueing resource.");
+
+                return Ok(Some(Action::requeue(Duration::from_secs(10))));
             }
         }
+
+        // FIXME Delete other deplyoments in case of name change
+        // to be deleted are deps with same owner reference but different name as the serivce name
+        tracing::info!("Checking for other deployments.");
+        let deplyoment_names_to_be_deleted: Vec<String> = deployment_api
+            .list(&ListParams::default())
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|deployment| {
+                deployment.metadata.name.clone().unwrap_or_default() != deployment_name
+                    && deployment
+                        .metadata
+                        .owner_references
+                        .clone()
+                        .unwrap_or_default()
+                        .contains(&crd_oref)
+            })
+            .map(|deployment| deployment.metadata.name.unwrap_or_default())
+            .collect();
+
+        for d in deplyoment_names_to_be_deleted {
+            tracing::info!(%d, "Deleting deployment.");
+            deployment_api
+                .delete(&d, &DeleteParams::default())
+                .await
+                .unwrap();
+        }
+        // FIXME end of Delete other deplyoments
 
         Ok(None)
     }
@@ -484,12 +537,13 @@ impl OperatorInner {
     async fn check_service(&self, crd: &OpenFaaSFunction) -> Result<Option<Action>, ServiceError> {
         tracing::info!("Checking if service exists.");
 
-        let name = crd.name_any();
+        let crd_name = crd.name_any();
+        let service_name = crd.spec.to_name();
         let api = &self.api;
         let service_api = &self.service_api;
 
         let service_opt = service_api
-            .get_opt(&name)
+            .get_opt(&service_name)
             .await
             .map_err(ServiceError::Get)?;
 
@@ -507,7 +561,7 @@ impl OperatorInner {
                     tracing::error!("Service does not have owner reference.");
 
                     let mut crd_with_status = api
-                        .get_status(&name)
+                        .get_status(&crd_name)
                         .await
                         .map_err(ServiceError::GetStatus)?;
 
@@ -539,6 +593,7 @@ impl OperatorInner {
             }
         }
 
+        // Delete old ones!
         Ok(None)
     }
 

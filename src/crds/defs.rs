@@ -42,10 +42,12 @@ pub struct OpenFaasFunctionSpec {
     /// list of names of secrets in the same namespace that will be mounted to secretsMountPath
     pub secrets: Option<Vec<String>>,
 
+    // automatically patched
     /// labels are metadata for functions which may be used by the
     /// faas-provider or the gateway
     pub labels: Option<HashMap<String, String>>,
 
+    // automatically patched
     /// annotations are metadata for functions which may be used by the
     /// faas-provider or the gateway
     pub annotations: Option<HashMap<String, String>>,

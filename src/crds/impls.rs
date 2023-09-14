@@ -19,7 +19,10 @@ use k8s_openapi::{
         api::resource::Quantity, apis::meta::v1::LabelSelector, util::intstr::IntOrString,
     },
 };
-use kube::core::{CustomResourceExt, ObjectMeta, Resource};
+use kube::{
+    api::Patch,
+    core::{CustomResourceExt, ObjectMeta, Resource},
+};
 use kube_quantity::ParsedQuantity;
 use std::{collections::BTreeMap, fmt::Display};
 
@@ -84,6 +87,19 @@ impl TryFrom<&FunctionResources> for FunctionResourcesQuantity {
 }
 
 impl OpenFaasFunctionSpec {
+    pub fn deployment_needs_recreation(&self, deployment: &Deployment) -> bool {
+        // service, and namespace as metadata fields, cannot be changed in deployment
+        // service if changed in crd, will trigger a creation of a new deployment and old one will be deleted
+        // namepace is logically impossible to change, as it is a crd namespace and the deployment namespace
+        // changing namespace will cause a stuck status, as old deployments will not be deleted, and the status will be set to invalidfunctionNamespce
+        // compare image,
+        // container,
+        // envs, env_process, secrets, limits, requests,
+        // constraints, read_only_root_filesystem,
+        // secrets_mount_path
+        unimplemented!()
+    }
+
     pub fn deployment_diffs(&self, deployment: &Deployment) -> Vec<DeploymentDiff> {
         unimplemented!()
     }
@@ -117,7 +133,7 @@ impl OpenFaasFunctionSpec {
         String::from("fprocess")
     }
 
-    fn to_name(&self) -> String {
+    pub fn to_name(&self) -> String {
         self.service.clone()
     }
 

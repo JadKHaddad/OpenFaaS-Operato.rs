@@ -12,12 +12,15 @@ spec:
   labels:
     label: "value"
     label2: "value2"
+    label3: "value3"
   annotations:
     annotation: "value"
     annotation2: "value2"
+    annotation3: "value3"
   envVars:
     envVar: "value"
     envVar2: "value2"
+    envVar233: "vaaaaaaa"
   secrets:
     - s3accesskey
     - s3accesskey
