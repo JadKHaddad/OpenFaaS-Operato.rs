@@ -442,6 +442,7 @@ impl OperatorInner {
                 tracing::info!("Deployment created.");
 
                 // reque to ensure deployment is ready before deleting old ones
+                // TODO: Add wait_for_ready_dep_on_name_change var.
 
                 tracing::info!("Requeueing resource.");
 
