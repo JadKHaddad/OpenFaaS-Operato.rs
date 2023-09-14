@@ -99,10 +99,46 @@ impl OpenFaasFunctionSpec {
         unimplemented!()
     }
 
+    fn patch_meta_annotatios_inner(
+        &self,
+        prev_spec_meta_annotatios: &BTreeMap<String, String>,
+        deployment_meta_annotatios: &BTreeMap<String, String>,
+    ) -> Option<BTreeMap<String, String>> {
+        let current_annotations = self.to_annotations().unwrap_or_default();
+        let annotations_in_prev_but_not_in_current =
+            utils::collect_missing_keys(prev_spec_meta_annotatios, &current_annotations);
+
+        println!("{:?}", annotations_in_prev_but_not_in_current);
+
+        let mut new_annotations = deployment_meta_annotatios.clone();
+
+        // insert current annotaions in new annotations and remove annotations that are in prev but not in current
+        for key in annotations_in_prev_but_not_in_current {
+            if new_annotations.remove(key).is_none() {}
+        }
+
+        for (key, value) in current_annotations.iter() {
+            new_annotations.insert(key.clone(), value.clone());
+        }
+
+        if &new_annotations != deployment_meta_annotatios {
+            new_annotations
+                .insert(
+                    String::from(LAST_APPLIED_ANNOTATION),
+                    serde_json::to_string(self).unwrap(),
+                )
+                .unwrap();
+
+            return Some(new_annotations);
+        }
+
+        None
+    }
+
     // fn patch_meta_labels_inner(
-    //     &self,
-    //     prev_spec_meta_labels: &BTreeMap<String, String>,
-    //     deployment_meta_labels: &BTreeMap<String, String>,
+    // &self,
+    // prev_spec_meta_labels: &BTreeMap<String, String>,
+    // deployment_meta_labels: &BTreeMap<String, String>,
     // ) -> BTreeMap<String, String> {
     //     let mut patched_labels = deployment_meta_labels.clone();
 
@@ -121,27 +157,27 @@ impl OpenFaasFunctionSpec {
     //     patched_labels
     // }
 
-    // pub fn patch(&self, mut deployment: Deployment) -> Option<Deployment> {
-    //     let deployment_meta_annotations =
-    //         deployment.metadata.clone().annotations.unwrap_or_default();
+    pub fn patch(&self, mut deployment: Deployment) -> Option<Deployment> {
+        let deployment_meta_annotations =
+            deployment.metadata.clone().annotations.unwrap_or_default();
 
-    //     let prev = deployment_meta_annotations
-    //         .get(LAST_APPLIED_ANNOTATION)
-    //         .map(|v| serde_json::from_str::<OpenFaasFunctionSpec>(v));
+        let prev = deployment_meta_annotations
+            .get(LAST_APPLIED_ANNOTATION)
+            .map(|v| serde_json::from_str::<OpenFaasFunctionSpec>(v));
 
-    //     if let Some(Ok(prev)) = prev {
-    //         let deployment_meta_labels = deployment.metadata.clone().labels.unwrap_or_default();
+        if let Some(Ok(prev)) = prev {
+            if let Some(patched_meta_annotations) = self.patch_meta_annotatios_inner(
+                &prev.to_annotations().unwrap_or_default(),
+                &deployment_meta_annotations,
+            ) {
+                deployment.metadata.annotations = Some(patched_meta_annotations);
 
-    //         let patched_meta_labels =
-    //             self.patch_meta_labels_inner(&prev.to_spec_meta_labels(), &deployment_meta_labels);
+                return Some(deployment);
+            }
+        }
 
-    //         deployment.metadata.labels = Some(patched_meta_labels);
-
-    //         return Some(deployment);
-    //     }
-
-    //     None
-    // }
+        None
+    }
 
     // some self.annotaions are not the same in the dep -> add
     // or some prev(self.annotions) are not in the new but still in dep -> remove

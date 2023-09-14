@@ -395,17 +395,18 @@ impl OperatorInner {
                 // needs_patch?
                 // else ok!
 
-                // tracing::info!("Comparing deployment for patches.");
-                // if let Some(dep) = crd.spec.patch(deployment) {
-                //     tracing::info!("Patching.");
+                tracing::info!("Comparing deployment for patches.");
+                if let Some(dep) = crd.spec.patch(deployment) {
+                    tracing::info!("Patching.");
 
-                //     let patch = Patch::Merge(&dep);
+                    // TODO: Merge does not remove fields
+                    let patch = Patch::Merge(&dep);
 
-                //     deployment_api
-                //         .patch(&deployment_name, &PatchParams::default(), &patch)
-                //         .await
-                //         .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
-                // }
+                    deployment_api
+                        .patch(&deployment_name, &PatchParams::default(), &patch)
+                        .await
+                        .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
+                }
 
                 // if crd.spec.deplyoment_needs_patch(&deployment) {
                 //     tracing::info!("Patching.");

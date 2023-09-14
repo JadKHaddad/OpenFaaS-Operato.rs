@@ -14,8 +14,7 @@ spec:
     label2: "value"
     label3: "value3"
   annotations:
-    annotation: "Annno!"
-    annotation2: "value2"
+    annotation2: "valuess2"
     annotation3: "value3"
   envVars:
     envVar: "value"
