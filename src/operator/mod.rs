@@ -396,6 +396,17 @@ impl OperatorInner {
                 // else ok!
 
                 // tracing::info!("Comparing deployment for patches.");
+                // if let Some(dep) = crd.spec.patch(deployment) {
+                //     tracing::info!("Patching.");
+
+                //     let patch = Patch::Merge(&dep);
+
+                //     deployment_api
+                //         .patch(&deployment_name, &PatchParams::default(), &patch)
+                //         .await
+                //         .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
+                // }
+
                 // if crd.spec.deplyoment_needs_patch(&deployment) {
                 //     tracing::info!("Patching.");
 

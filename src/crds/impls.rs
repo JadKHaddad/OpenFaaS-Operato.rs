@@ -99,6 +99,50 @@ impl OpenFaasFunctionSpec {
         unimplemented!()
     }
 
+    // fn patch_meta_labels_inner(
+    //     &self,
+    //     prev_spec_meta_labels: &BTreeMap<String, String>,
+    //     deployment_meta_labels: &BTreeMap<String, String>,
+    // ) -> BTreeMap<String, String> {
+    //     let mut patched_labels = deployment_meta_labels.clone();
+
+    //     let current_labels = self.to_meta_labels();
+
+    //     for (key, value) in current_labels.iter() {
+    //         patched_labels.insert(key.clone(), value.clone());
+    //     }
+
+    //     for key in prev_spec_meta_labels.keys() {
+    //         if !current_labels.contains_key(key) {
+    //             patched_labels.remove(key);
+    //         }
+    //     }
+
+    //     patched_labels
+    // }
+
+    // pub fn patch(&self, mut deployment: Deployment) -> Option<Deployment> {
+    //     let deployment_meta_annotations =
+    //         deployment.metadata.clone().annotations.unwrap_or_default();
+
+    //     let prev = deployment_meta_annotations
+    //         .get(LAST_APPLIED_ANNOTATION)
+    //         .map(|v| serde_json::from_str::<OpenFaasFunctionSpec>(v));
+
+    //     if let Some(Ok(prev)) = prev {
+    //         let deployment_meta_labels = deployment.metadata.clone().labels.unwrap_or_default();
+
+    //         let patched_meta_labels =
+    //             self.patch_meta_labels_inner(&prev.to_spec_meta_labels(), &deployment_meta_labels);
+
+    //         deployment.metadata.labels = Some(patched_meta_labels);
+
+    //         return Some(deployment);
+    //     }
+
+    //     None
+    // }
+
     // some self.annotaions are not the same in the dep -> add
     // or some prev(self.annotions) are not in the new but still in dep -> remove
     // fn meta_labels_need_patch(&self, deployment: &Deployment) -> bool {
