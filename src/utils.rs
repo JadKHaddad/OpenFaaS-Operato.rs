@@ -17,15 +17,12 @@ pub fn collect_missing_keys_btree<'a>(
 }
 
 /// Collects keys from the first vector that are not present in the second vector.
-pub fn collect_missing_keys_vec<'a, T: PartialEq>(
-    first: &'a Vec<T>,
-    second: &'a Vec<T>,
-) -> Vec<&'a T> {
+pub fn collect_missing_keys_vec<'a, T: PartialEq>(first: &'a [T], second: &'a [T]) -> Vec<&'a T> {
     first.iter().filter(|key| !second.contains(key)).collect()
 }
 
 /// Returns the first key that is missing or diffirent in the second map.
-pub fn a_key_is_missing_or_diffirent<'a>(
+pub fn a_key_is_missing_or_diffirent_btree<'a>(
     first: &'a BTreeMap<String, String>,
     second: &'a BTreeMap<String, String>,
 ) -> Option<&'a str> {

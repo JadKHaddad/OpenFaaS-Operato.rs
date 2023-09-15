@@ -12,7 +12,7 @@ use k8s_openapi::api::{
     core::v1::{Secret, Service},
 };
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
-use kube::api::{DeleteParams, Patch, PatchParams};
+use kube::api::DeleteParams;
 use kube::{
     api::{ListParams, PostParams},
     runtime::{controller::Action, finalizer::Event, watcher::Config},
