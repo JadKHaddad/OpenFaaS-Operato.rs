@@ -19,14 +19,14 @@ spec:
   envVars:
     envVar: "value"
     envVar2: "value2"
-    envVar233: "vaaaaaaa"
+    envVar2332: "vaaaaaaa"
   secrets:
     - s3accesskey
     - s3accesskey
     - s2accesskey
   readOnlyRootFilesystem: true
   limits:
-    cpu: "10m"
+    cpu: "10ms"
     memory: "30Mi"
   requests:
     cpu: "10m"

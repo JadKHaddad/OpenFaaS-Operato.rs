@@ -11,9 +11,10 @@ use k8s_openapi::{
     api::{
         apps::v1::{Deployment, DeploymentSpec, DeploymentStrategy, RollingUpdateDeployment},
         core::v1::{
-            Container, ContainerPort, EnvVar, HTTPGetAction, KeyToPath, PodSpec, PodTemplateSpec,
-            Probe, ProjectedVolumeSource, ResourceRequirements, SecretProjection, SecurityContext,
-            Service, ServicePort, ServiceSpec, Volume, VolumeMount, VolumeProjection,
+            Container, ContainerPort, EnvVar, HTTPGetAction, KeyToPath, PodSecurityContext,
+            PodSpec, PodTemplateSpec, Probe, ProjectedVolumeSource, ResourceRequirements,
+            SecretProjection, SecurityContext, Service, ServicePort, ServiceSpec, Volume,
+            VolumeMount, VolumeProjection,
         },
     },
     apimachinery::pkg::{
@@ -142,11 +143,11 @@ impl OpenFaasFunctionSpec {
 
         tracing::debug!("Checking meta labels");
         let meta_labels_in_prev_but_not_in_current =
-            utils::collect_missing_keys(&prev_spec_meta_labels, &current_meta_labels);
+            utils::collect_missing_keys_btree(&prev_spec_meta_labels, &current_meta_labels);
         let meta_labels_in_dep_but_not_in_current =
-            utils::collect_missing_keys(&deployment_meta_labels, &current_meta_labels);
+            utils::collect_missing_keys_btree(&deployment_meta_labels, &current_meta_labels);
         let meta_labels_in_current_but_not_dep =
-            utils::collect_missing_keys(&current_meta_labels, &deployment_meta_labels);
+            utils::collect_missing_keys_btree(&current_meta_labels, &deployment_meta_labels);
         tracing::debug!(
             "Meta labels in deployment but not in current spec: {:#?}",
             meta_labels_in_dep_but_not_in_current
@@ -184,12 +185,18 @@ impl OpenFaasFunctionSpec {
         // remove the last applied annotation, since we don't want to compare it
         deployment_meta_annotations.remove(LAST_APPLIED_ANNOTATION);
         tracing::debug!("Checking meta annotations");
-        let meta_annotations_in_prev_but_not_in_current =
-            utils::collect_missing_keys(&prev_spec_meta_annotations, &current_meta_annotations);
-        let meta_annotations_in_dep_but_not_in_current =
-            utils::collect_missing_keys(&deployment_meta_annotations, &current_meta_annotations);
-        let meta_annotations_in_current_but_not_dep =
-            utils::collect_missing_keys(&current_meta_annotations, &deployment_meta_annotations);
+        let meta_annotations_in_prev_but_not_in_current = utils::collect_missing_keys_btree(
+            &prev_spec_meta_annotations,
+            &current_meta_annotations,
+        );
+        let meta_annotations_in_dep_but_not_in_current = utils::collect_missing_keys_btree(
+            &deployment_meta_annotations,
+            &current_meta_annotations,
+        );
+        let meta_annotations_in_current_but_not_dep = utils::collect_missing_keys_btree(
+            &current_meta_annotations,
+            &deployment_meta_annotations,
+        );
         tracing::debug!(
             "Meta annotations in deployment but not in current spec: {:#?}",
             meta_annotations_in_dep_but_not_in_current
@@ -237,11 +244,11 @@ impl OpenFaasFunctionSpec {
             .clone();
 
         let spec_labels_in_prev_but_not_in_current =
-            utils::collect_missing_keys(&prev_spec_spec_labels, &current_spec_labels);
+            utils::collect_missing_keys_btree(&prev_spec_spec_labels, &current_spec_labels);
         let spec_labels_in_dep_but_not_in_current =
-            utils::collect_missing_keys(&deployment_spec_labels, &current_spec_labels);
+            utils::collect_missing_keys_btree(&deployment_spec_labels, &current_spec_labels);
         let spec_labels_in_current_but_not_dep =
-            utils::collect_missing_keys(&current_spec_labels, &deployment_spec_labels);
+            utils::collect_missing_keys_btree(&current_spec_labels, &deployment_spec_labels);
         tracing::debug!(
             "Spec labels in deployment but not in current spec: {:#?}",
             spec_labels_in_dep_but_not_in_current
@@ -283,12 +290,18 @@ impl OpenFaasFunctionSpec {
             .unwrap_or(&BTreeMap::new())
             .clone();
 
-        let spec_annotations_in_prev_but_not_in_current =
-            utils::collect_missing_keys(&prev_spec_spec_annotations, &current_spec_annotations);
-        let spec_annotations_in_dep_but_not_in_current =
-            utils::collect_missing_keys(&deployment_spec_annotations, &current_spec_annotations);
-        let spec_annotations_in_current_but_not_dep =
-            utils::collect_missing_keys(&current_spec_annotations, &deployment_spec_annotations);
+        let spec_annotations_in_prev_but_not_in_current = utils::collect_missing_keys_btree(
+            &prev_spec_spec_annotations,
+            &current_spec_annotations,
+        );
+        let spec_annotations_in_dep_but_not_in_current = utils::collect_missing_keys_btree(
+            &deployment_spec_annotations,
+            &current_spec_annotations,
+        );
+        let spec_annotations_in_current_but_not_dep = utils::collect_missing_keys_btree(
+            &current_spec_annotations,
+            &deployment_spec_annotations,
+        );
         tracing::debug!(
             "Spec annotations in deployment but not in current spec: {:#?}",
             spec_annotations_in_dep_but_not_in_current
@@ -313,6 +326,161 @@ impl OpenFaasFunctionSpec {
         // add annotations that are in current but not in deployment
         deployment_spec_annotations.extend(current_spec_annotations);
         tracing::debug!("Final spec annotations: {:#?}", deployment_spec_annotations);
+
+        tracing::debug!("Checking constraints");
+        let current_node_selector = self.to_node_selector().unwrap_or_default();
+        let prev_spec_node_selector = prev_spec.to_node_selector().unwrap_or_default();
+        let mut deployment_node_selector = deployment
+            .spec
+            .as_ref()
+            .unwrap_or(&DeploymentSpec::default())
+            .template
+            .spec
+            .as_ref()
+            .unwrap_or(&PodSpec::default())
+            .node_selector
+            .as_ref()
+            .unwrap_or(&BTreeMap::new())
+            .clone();
+
+        let node_selector_in_prev_but_not_in_current =
+            utils::collect_missing_keys_btree(&prev_spec_node_selector, &current_node_selector);
+        let node_selector_in_dep_but_not_in_current =
+            utils::collect_missing_keys_btree(&deployment_node_selector, &current_node_selector);
+        let node_selector_in_current_but_not_dep =
+            utils::collect_missing_keys_btree(&current_node_selector, &deployment_node_selector);
+        tracing::debug!(
+            "Node selector in deployment but not in current spec: {:#?}",
+            node_selector_in_dep_but_not_in_current
+        );
+        tracing::debug!(
+            "Node selector to be added to deployment: {:#?}",
+            node_selector_in_current_but_not_dep
+        );
+        tracing::debug!(
+            "Node selector to be removed from deployment: {:#?}",
+            node_selector_in_prev_but_not_in_current
+        );
+        if !node_selector_in_prev_but_not_in_current.is_empty() {
+            tracing::debug!("May trigger replace");
+            replace = true;
+        }
+        // remove node selector that are in prev_spec but not in current
+        for node_selector in node_selector_in_prev_but_not_in_current {
+            deployment_node_selector.remove(node_selector);
+        }
+        // add node selector that are in current but not in deployment
+        deployment_node_selector.extend(current_node_selector);
+        tracing::debug!("Final node selector: {:#?}", deployment_node_selector);
+
+        tracing::debug!("Checking containers");
+        tracing::debug!("Checking if container is missing");
+        let deployment_containers = deployment
+            .spec
+            .as_ref()
+            .unwrap_or(&DeploymentSpec::default())
+            .template
+            .spec
+            .as_ref()
+            .unwrap_or(&PodSpec::default())
+            .containers
+            .clone();
+
+        let container_name = self.to_name();
+
+        let deployment_container = deployment_containers
+            .iter()
+            .find(|c| c.name == container_name);
+
+        match deployment_container {
+            None => {
+                tracing::debug!("Container is missing => recreate!");
+                return;
+            }
+            Some(deployment_container) => {
+                tracing::debug!("Checking image");
+                if deployment_container.image != Some(self.to_image()) {
+                    tracing::debug!("Image is different => recreate!");
+                    return;
+                }
+
+                tracing::debug!("Checking env vars");
+                let current_env_vars = Option::<Vec<EnvVar>>::from(self).unwrap_or_default();
+                let prev_spec_env_vars =
+                    Option::<Vec<EnvVar>>::from(&prev_spec).unwrap_or_default();
+                let mut deployment_env_vars = deployment_container.env.clone().unwrap_or_default();
+
+                let env_vars_in_prev_but_not_in_current =
+                    utils::collect_missing_keys_vec(&prev_spec_env_vars, &current_env_vars);
+                let env_vars_in_dep_but_not_in_current =
+                    utils::collect_missing_keys_vec(&deployment_env_vars, &current_env_vars);
+                let env_vars_in_current_but_not_dep =
+                    utils::collect_missing_keys_vec(&current_env_vars, &deployment_env_vars);
+                tracing::debug!(
+                    "Env vars in deployment but not in current spec: {:#?}",
+                    env_vars_in_dep_but_not_in_current
+                );
+                tracing::debug!(
+                    "Env vars to be added to deployment: {:#?}",
+                    env_vars_in_current_but_not_dep
+                );
+                tracing::debug!(
+                    "Env vars to be removed from deployment: {:#?}",
+                    env_vars_in_prev_but_not_in_current
+                );
+                // // remove env vars that are in prev_spec but not in current
+                // for env_var in env_vars_in_prev_but_not_in_current {
+                //     deployment_env_vars.retain(|e| e.name != env_var.name);
+                // }
+                // // add env vars that are in current but not in deployment
+                // deployment_env_vars.extend(current_env_vars);
+                // tracing::debug!("Final env vars: {:#?}", deployment_env_vars);
+
+                tracing::debug!("Checking read only root filesystem");
+                if deployment_container
+                    .security_context
+                    .as_ref()
+                    .unwrap_or(&SecurityContext::default())
+                    .read_only_root_filesystem
+                    != self.read_only_root_filesystem
+                {
+                    tracing::debug!("Read only root filesystem is different => recreate!");
+                    return;
+                }
+                tracing::debug!("Checking limits");
+                let current_limits = self.try_to_limits().unwrap_or_default().unwrap_or_default();
+                let deployment_limits = deployment_container
+                    .resources
+                    .as_ref()
+                    .unwrap_or(&ResourceRequirements::default())
+                    .limits
+                    .as_ref()
+                    .unwrap_or(&BTreeMap::new())
+                    .clone();
+
+                if current_limits != deployment_limits {
+                    tracing::debug!("Limits are different!");
+                }
+
+                tracing::debug!("Checking requests");
+                let current_requests = self
+                    .try_to_requests()
+                    .unwrap_or_default()
+                    .unwrap_or_default();
+                let deployment_requests = deployment_container
+                    .resources
+                    .as_ref()
+                    .unwrap_or(&ResourceRequirements::default())
+                    .requests
+                    .as_ref()
+                    .unwrap_or(&BTreeMap::new())
+                    .clone();
+
+                if current_requests != deployment_requests {
+                    tracing::debug!("Requests are different!");
+                }
+            }
+        }
 
         if replace {
             tracing::debug!("Deployment needs to be replaced");
