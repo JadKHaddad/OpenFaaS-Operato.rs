@@ -113,6 +113,20 @@ pub enum OpenFaasFunctionErrorStatus {
 }
 
 #[derive(ThisError, Debug)]
+pub enum FunctionSpecIntoYamlError {
+    #[error("Failed to generate deployment: {0}")]
+    Deployment(FunctionSpecIntoDeploymentError),
+    #[error("Failed to generate service: {0}")]
+    Service(FunctionSpecIntoServiceError),
+    #[error("Failed to serialize: {0}")]
+    Serialize(
+        #[source]
+        #[from]
+        serde_yaml::Error,
+    ),
+}
+
+#[derive(ThisError, Debug)]
 pub enum FunctionIntoDeploymentError {
     #[error("Failed to get owner reference")]
     OwnerReference,

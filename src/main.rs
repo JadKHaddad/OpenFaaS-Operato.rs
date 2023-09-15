@@ -1,6 +1,17 @@
-use anyhow::Result as AnyResult;
-use kube::Client as KubeClient;
-use openfaas_operato_rs::{consts::*, crds::defs::OpenFaaSFunction, operator::Operator};
+use std::path::PathBuf;
+
+use anyhow::{Context, Result as AnyResult};
+use clap::Parser;
+use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
+use kube::{
+    api::{DeleteParams, PostParams},
+    Api, Client as KubeClient, CustomResourceExt,
+};
+use openfaas_functions_operato_rs::{
+    cli::{Cli, Commands, CrdCommands, CrdConvertCommands},
+    crds::defs::OpenFaaSFunction,
+    operator::Operator,
+};
 use tracing::{trace_span, Instrument};
 use tracing_subscriber::EnvFilter;
 
@@ -20,21 +31,6 @@ pub fn init_tracing() {
         .init();
 }
 
-fn read_from_env_or_default(env_var: &str, default: &str) -> String {
-    tracing::debug!(%env_var, %default, "Reading environment variable.");
-
-    std::env::var(env_var).unwrap_or_else(|_| {
-        tracing::warn!(%default, "{env_var} not set, using default.");
-        default.to_string()
-    })
-}
-
-fn start_up() -> String {
-    tracing::info!("Collecting environment variables.");
-
-    read_from_env_or_default(FUNCTIONS_NAMESPACE_ENV_VAR, FUNCTIONS_DEFAULT_NAMESPACE)
-}
-
 async fn create_and_run_operator(client: KubeClient, functions_namespace: String) {
     let span = trace_span!("Create", %functions_namespace);
 
@@ -48,15 +44,89 @@ async fn create_and_run_operator(client: KubeClient, functions_namespace: String
 #[tokio::main]
 async fn main() -> AnyResult<()> {
     init_tracing();
-    OpenFaaSFunction::write_crds_to_file("crds.yaml");
+    let cli = Cli::parse();
 
-    let functions_namespace = start_up();
+    tracing::debug!("{:#?}", cli);
 
-    let client = KubeClient::try_default().await?;
+    match cli.command {
+        Commands::Run {
+            functions_namespace,
+        } => {
+            let client = KubeClient::try_default().await?;
 
-    create_and_run_operator(client, functions_namespace)
-        .instrument(trace_span!("Operator"))
-        .await;
+            create_and_run_operator(client, functions_namespace)
+                .instrument(trace_span!("Operator"))
+                .await;
+        }
+        Commands::Crd { command } => match command {
+            CrdCommands::Write { path } => {
+                write_crd_to_file(path)?;
+            }
+            CrdCommands::Print {} => {
+                print_crd()?;
+            }
+            CrdCommands::Install {} => {
+                let client = KubeClient::try_default().await?;
 
+                let api = Api::<CustomResourceDefinition>::all(client);
+                if let Err(error) = api
+                    .create(&PostParams::default(), &OpenFaaSFunction::crd())
+                    .await
+                {
+                    tracing::error!(%error, "Failed to install CRD");
+                }
+            }
+            CrdCommands::Uninstall {} => {
+                let client = KubeClient::try_default().await?;
+
+                let api = Api::<CustomResourceDefinition>::all(client);
+                if let Err(error) = api
+                    .delete(OpenFaaSFunction::crd_name(), &DeleteParams::default())
+                    .await
+                {
+                    tracing::error!(%error, "Failed to uninstall CRD");
+                }
+            }
+            CrdCommands::Convert { crd_path, command } => {
+                let crd = read_crd_from_file(crd_path)?;
+                match crd.spec.to_yaml_string() {
+                    Err(error) => {
+                        tracing::error!(%error, "Failed to convert crd to yaml");
+                    }
+                    Ok(yaml) => match command {
+                        CrdConvertCommands::Write { resource_path } => {
+                            std::fs::write(resource_path, yaml)
+                                .context("Failed to write crd to file")?;
+                        }
+                        CrdConvertCommands::Print {} => {
+                            println!("{}", yaml);
+                        }
+                    },
+                }
+            }
+        },
+    }
+
+    Ok(())
+}
+
+pub fn read_crd_from_file(path: PathBuf) -> AnyResult<OpenFaaSFunction> {
+    let crds = std::fs::read_to_string(path).context("Failed to read crd from file")?;
+    let crd = serde_yaml::from_str(&crds).context("Failed to parse crd")?;
+    Ok(crd)
+}
+
+pub fn generate_crd_yaml() -> AnyResult<String> {
+    serde_yaml::to_string(&OpenFaaSFunction::crd()).context("Failed to generate crd")
+}
+
+pub fn print_crd() -> AnyResult<()> {
+    println!("{}", generate_crd_yaml()?);
+    Ok(())
+}
+
+pub fn write_crd_to_file(path: PathBuf) -> AnyResult<()> {
+    let crds = generate_crd_yaml()?;
+    std::fs::write(path, crds).context("Failed to write crd to file")?;
     Ok(())
 }
