@@ -60,4 +60,9 @@ pub enum CrdConvertCommands {
     },
     /// Prints the Kubernetes resources to stdout
     Print {},
+    /// Applies the Kubernetes resources to the cluster
+    /// No guarantees or checks are made to ensure the resources are applied correctly
+    Apply {},
+    /// Deletes the Kubernetes resources from the cluster
+    Delete {},
 }
