@@ -218,9 +218,6 @@ impl OperatorInner {
                 .await
                 .map_err(CheckResourceNamespaceError::SetStatus)?;
 
-            // tracing::info!("Requeueing resource.");
-            // return Ok(Some(Action::requeue(Duration::from_secs(10))));
-
             tracing::info!("Awaiting change.");
             return Ok(Some(Action::await_change()));
         }
@@ -263,9 +260,6 @@ impl OperatorInner {
                         .await
                         .map_err(CheckFunctionNamespaceError::SetStatus)?;
 
-                    // tracing::info!("Requeueing resource.");
-                    // return Ok(Some(Action::requeue(Duration::from_secs(10))));
-
                     tracing::info!("Awaiting change.");
                     return Ok(Some(Action::await_change()));
                 }
@@ -281,9 +275,7 @@ impl OperatorInner {
     ) -> Result<Option<Action>, DeploymentError> {
         tracing::info!("Checking if deployment exists.");
 
-        let crd_name = crd.name_any();
         let deployment_name = crd.spec.to_name();
-        let api = &self.api;
         let deployment_api = &self.deployment_api;
 
         let deployment_opt = deployment_api
@@ -296,202 +288,25 @@ impl OperatorInner {
             .ok_or(DeploymentError::OwnerReference)?;
 
         match deployment_opt {
-            // TODO: CheckDeploymentError: can be moved to func
-            Some(deployment) => {
-                tracing::info!("Deployment exists. Comparing.");
-
-                let deployment_orefs = deployment.owner_references();
-
-                if deployment_orefs.contains(&crd_oref) {
-                    tracing::info!("Deployment has owner reference. Checking if ready.");
-
-                    match deployment.status {
-                        None => {
-                            tracing::info!("Deployment has no status. Assuming not ready.");
-
-                            let mut crd_with_status =
-                                api.get_status(&crd_name).await.map_err(|err| {
-                                    DeploymentError::Check(CheckDeploymentError::GetStatus(err))
-                                })?;
-
-                            let status = OpenFaasFunctionStatus::Err(
-                                OpenFaasFunctionErrorStatus::DeploymentNotReady,
-                            );
-
-                            self.replace_status(&mut crd_with_status, status)
-                                .await
-                                .map_err(|err| {
-                                    DeploymentError::Check(CheckDeploymentError::SetStatus(err))
-                                })?;
-
-                            // tracing::info!("Requeueing resource.");
-                            // return Ok(Some(Action::requeue(Duration::from_secs(10))));
-
-                            tracing::info!("Awaiting change.");
-                            return Ok(Some(Action::await_change()));
-                        }
-                        Some(ref status) => match status.ready_replicas {
-                            None => {
-                                tracing::info!(
-                                    "Deployment has no ready replicas. Assuming not ready."
-                                );
-
-                                let mut crd_with_status =
-                                    api.get_status(&crd_name).await.map_err(|err| {
-                                        DeploymentError::Check(CheckDeploymentError::GetStatus(err))
-                                    })?;
-
-                                let status = OpenFaasFunctionStatus::Err(
-                                    OpenFaasFunctionErrorStatus::DeploymentNotReady,
-                                );
-
-                                self.replace_status(&mut crd_with_status, status)
-                                    .await
-                                    .map_err(|err| {
-                                        DeploymentError::Check(CheckDeploymentError::SetStatus(err))
-                                    })?;
-
-                                // tracing::info!("Requeueing resource.");
-                                // return Ok(Some(Action::requeue(Duration::from_secs(10))));
-
-                                tracing::info!("Awaiting change.");
-                                return Ok(Some(Action::await_change()));
-                            }
-                            Some(replicas) => {
-                                tracing::info!(
-                                    replicas,
-                                    "Deployment has {replicas} ready replica(s). Assuming ready."
-                                );
-                            }
-                        },
-                    }
-                } else {
-                    tracing::error!("Deployment does not have owner reference.");
-
-                    let mut crd_with_status = api.get_status(&crd_name).await.map_err(|err| {
-                        DeploymentError::Check(CheckDeploymentError::GetStatus(err))
-                    })?;
-
-                    let status = OpenFaasFunctionStatus::Err(
-                        OpenFaasFunctionErrorStatus::DeploymentAlreadyExists,
-                    );
-
-                    self.replace_status(&mut crd_with_status, status)
-                        .await
-                        .map_err(|err| {
-                            DeploymentError::Check(CheckDeploymentError::SetStatus(err))
-                        })?;
-
-                    // tracing::info!("Requeueing resource.");
-                    // return Ok(Some(Action::requeue(Duration::from_secs(10))));
-
-                    tracing::info!("Awaiting change.");
-                    return Ok(Some(Action::await_change()));
-                }
-
-                // TODO: Compare deployment
-                // needs_recreate?
-                // else
-                // needs_patch?
-                // else ok!
-
-                tracing::info!("Comparing deployment for patches.");
-                if let Some(dep) = crd.spec.patch(deployment) {
-                    tracing::info!("Patching.");
-
-                    // replace removes old values
-                    deployment_api
-                        .replace(&deployment_name, &PostParams::default(), &dep)
-                        .await
-                        .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
-                }
-
-                // if crd.spec.deplyoment_needs_patch(&deployment) {
-                //     tracing::info!("Patching.");
-
-                //     let crd_dep = Deployment::try_from(crd)
-                //         .map_err(|err| DeploymentError::Patch(PatchError::Generate(err)))?;
-
-                //     let patch = Patch::Merge(&crd_dep);
-
-                //     deployment_api
-                //         .patch(&deployment_name, &PatchParams::default(), &patch)
-                //         .await
-                //         .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
-                // } else {
-                //     tracing::info!("Deployment is up to date.");
-                // }
-            }
-            // TODO: CreateDeploymentError: can be moved to func
-            None => {
-                tracing::info!("Deployment does not exist. Creating.");
-
+            Some(ref deployment) => {
                 if let Some(action) = self
-                    .check_secrets(crd)
-                    .instrument(trace_span!("CheckSecrets"))
+                    .check_existing_deployment(crd, &crd_oref, deployment)
+                    .instrument(trace_span!("CheckExistingDeployment"))
                     .await
-                    .map_err(|err| DeploymentError::Create(CreateDeploymentError::Secrets(err)))?
+                    .map_err(DeploymentError::Check)?
                 {
                     return Ok(Some(action));
                 }
-
-                match Deployment::try_from(crd) {
-                    Ok(deployment) => {
-                        tracing::info!("Deployment generated. Creating.");
-
-                        deployment_api
-                            .create(&PostParams::default(), &deployment)
-                            .await
-                            .map_err(|err| {
-                                DeploymentError::Create(CreateDeploymentError::Apply(err))
-                            })?;
-                    }
-                    Err(error) => {
-                        tracing::error!(%error, "Failed to generate deployment.");
-
-                        // Now we set the status and propagate the error
-                        match Option::<OpenFaasFunctionErrorStatus>::from(&error) {
-                            Some(error_status) => {
-                                tracing::debug!(%error, "Error can be converted to status.");
-
-                                let mut crd_with_status =
-                                    api.get_status(&crd_name).await.map_err(|err| {
-                                        DeploymentError::Create(CreateDeploymentError::GetStatus(
-                                            err,
-                                        ))
-                                    })?;
-
-                                let status = OpenFaasFunctionStatus::Err(error_status);
-
-                                self.replace_status(&mut crd_with_status, status)
-                                    .await
-                                    .map_err(|err| {
-                                        DeploymentError::Create(CreateDeploymentError::SetStatus(
-                                            err,
-                                        ))
-                                    })?;
-                            }
-                            None => {
-                                tracing::debug!(%error, "Error cannot be converted to status. Skipping.");
-                            }
-                        }
-
-                        return Err(DeploymentError::Create(CreateDeploymentError::Generate(
-                            error,
-                        )));
-                    }
+            }
+            None => {
+                if let Some(action) = self
+                    .create_deployment(crd)
+                    .instrument(trace_span!("CreateDeployment"))
+                    .await
+                    .map_err(DeploymentError::Create)?
+                {
+                    return Ok(Some(action));
                 }
-
-                tracing::info!("Deployment created.");
-
-                // reque to ensure deployment is ready before deleting old ones
-                // TODO: Add wait_for_ready_dep_on_name_change var.
-
-                // tracing::info!("Requeueing resource.");
-                // return Ok(Some(Action::requeue(Duration::from_secs(10))));
-
-                tracing::info!("Awaiting change.");
-                return Ok(Some(Action::await_change()));
             }
         }
 
@@ -507,13 +322,200 @@ impl OperatorInner {
         Ok(None)
     }
 
+    async fn check_existing_deployment(
+        &self,
+        crd: &OpenFaaSFunction,
+        crd_oref: &OwnerReference,
+        deployment: &Deployment,
+    ) -> Result<Option<Action>, CheckDeploymentError> {
+        tracing::info!("Deployment exists. Comparing.");
+
+        let crd_name = crd.name_any();
+        let api = &self.api;
+        let deployment_orefs = deployment.owner_references();
+
+        if deployment_orefs.contains(crd_oref) {
+            tracing::info!("Deployment has owner reference. Checking if ready.");
+
+            match deployment.status {
+                None => {
+                    tracing::info!("Deployment has no status. Assuming not ready.");
+
+                    let mut crd_with_status = api
+                        .get_status(&crd_name)
+                        .await
+                        .map_err(CheckDeploymentError::GetStatus)?;
+
+                    let status = OpenFaasFunctionStatus::Err(
+                        OpenFaasFunctionErrorStatus::DeploymentNotReady,
+                    );
+
+                    self.replace_status(&mut crd_with_status, status)
+                        .await
+                        .map_err(CheckDeploymentError::SetStatus)?;
+
+                    tracing::info!("Awaiting change.");
+                    return Ok(Some(Action::await_change()));
+                }
+                Some(ref status) => match status.ready_replicas {
+                    None => {
+                        tracing::info!("Deployment has no ready replicas. Assuming not ready.");
+
+                        let mut crd_with_status = api
+                            .get_status(&crd_name)
+                            .await
+                            .map_err(CheckDeploymentError::GetStatus)?;
+
+                        let status = OpenFaasFunctionStatus::Err(
+                            OpenFaasFunctionErrorStatus::DeploymentNotReady,
+                        );
+
+                        self.replace_status(&mut crd_with_status, status)
+                            .await
+                            .map_err(CheckDeploymentError::SetStatus)?;
+
+                        tracing::info!("Awaiting change.");
+                        return Ok(Some(Action::await_change()));
+                    }
+                    Some(replicas) => {
+                        tracing::info!(
+                            replicas,
+                            "Deployment has {replicas} ready replica(s). Assuming ready."
+                        );
+                    }
+                },
+            }
+        } else {
+            tracing::error!("Deployment does not have owner reference.");
+
+            let mut crd_with_status = api
+                .get_status(&crd_name)
+                .await
+                .map_err(CheckDeploymentError::GetStatus)?;
+
+            let status =
+                OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::DeploymentAlreadyExists);
+
+            self.replace_status(&mut crd_with_status, status)
+                .await
+                .map_err(CheckDeploymentError::SetStatus)?;
+
+            // tracing::info!("Requeueing resource.");
+            // return Ok(Some(Action::requeue(Duration::from_secs(10))));
+
+            tracing::info!("Awaiting change.");
+            return Ok(Some(Action::await_change()));
+        }
+
+        // TODO: Compare deployment
+        // needs_recreate?
+        // else
+        // needs_patch?
+        // else ok!
+
+        // tracing::info!("Comparing deployment for patches.");
+        // if let Some(dep) = crd.spec.patch(deployment) {
+        //     tracing::info!("Patching.");
+
+        //     // replace removes old values
+        //     deployment_api
+        //         .replace(&deployment_name, &PostParams::default(), &dep)
+        //         .await
+        //         .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
+        // }
+
+        // if crd.spec.deplyoment_needs_patch(&deployment) {
+        //     tracing::info!("Patching.");
+
+        //     let crd_dep = Deployment::try_from(crd)
+        //         .map_err(|err| DeploymentError::Patch(PatchError::Generate(err)))?;
+
+        //     let patch = Patch::Merge(&crd_dep);
+
+        //     deployment_api
+        //         .patch(&deployment_name, &PatchParams::default(), &patch)
+        //         .await
+        //         .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
+        // } else {
+        //     tracing::info!("Deployment is up to date.");
+        // }
+
+        Ok(None)
+    }
+
+    async fn create_deployment(
+        &self,
+        crd: &OpenFaaSFunction,
+    ) -> Result<Option<Action>, CreateDeploymentError> {
+        tracing::info!("Deployment does not exist. Creating.");
+
+        let crd_name = crd.name_any();
+        let api = &self.api;
+        let deployment_api = &self.deployment_api;
+
+        if let Some(action) = self
+            .check_secrets(crd)
+            .instrument(trace_span!("CheckSecrets"))
+            .await
+            .map_err(CreateDeploymentError::Secrets)?
+        {
+            return Ok(Some(action));
+        }
+
+        match Deployment::try_from(crd) {
+            Ok(deployment) => {
+                tracing::info!("Deployment generated. Creating.");
+
+                deployment_api
+                    .create(&PostParams::default(), &deployment)
+                    .await
+                    .map_err(CreateDeploymentError::Apply)?;
+            }
+            Err(error) => {
+                tracing::error!(%error, "Failed to generate deployment.");
+
+                // Now we set the status and propagate the error
+                match Option::<OpenFaasFunctionErrorStatus>::from(&error) {
+                    Some(error_status) => {
+                        tracing::debug!(%error, "Error can be converted to status.");
+
+                        let mut crd_with_status = api
+                            .get_status(&crd_name)
+                            .await
+                            .map_err(CreateDeploymentError::GetStatus)?;
+
+                        let status = OpenFaasFunctionStatus::Err(error_status);
+
+                        self.replace_status(&mut crd_with_status, status)
+                            .await
+                            .map_err(CreateDeploymentError::SetStatus)?;
+                    }
+                    None => {
+                        tracing::debug!(%error, "Error cannot be converted to status. Skipping.");
+                    }
+                }
+
+                return Err(CreateDeploymentError::Generate(error));
+            }
+        }
+
+        tracing::info!("Deployment created.");
+
+        // reque to ensure deployment is ready before deleting old ones
+        // TODO: Add wait_for_ready_dep_on_name_change var.
+
+        tracing::info!("Awaiting change.");
+        Ok(Some(Action::await_change()))
+    }
+
     async fn delete_old_deployments(
         &self,
         crd: &OpenFaaSFunction,
         crd_oref: &OwnerReference,
     ) -> Result<Option<Action>, DeleteDeploymentsError> {
-        tracing::info!("Checking for other deployments.");
-        // to be deleted are deps with same owner reference but different name as the serivce name
+        tracing::info!("Checking other deployments.");
+
+        // deployments to be deleted are deployments with same owner reference but different name as our spec serivce (function's name)
 
         let deployment_name = crd.spec.to_name();
         let deployment_api = &self.deployment_api;
@@ -585,9 +587,6 @@ impl OperatorInner {
                     .await
                     .map_err(CheckSecretsError::SetStatus)?;
 
-                // tracing::info!("Requeueing resource.");
-                // return Ok(Some(Action::requeue(Duration::from_secs(10))));
-
                 tracing::info!("Awaiting change.");
                 return Ok(Some(Action::await_change()));
             }
@@ -601,9 +600,7 @@ impl OperatorInner {
     async fn check_service(&self, crd: &OpenFaaSFunction) -> Result<Option<Action>, ServiceError> {
         tracing::info!("Checking if service exists.");
 
-        let crd_name = crd.name_any();
         let service_name = crd.spec.to_name();
-        let api = &self.api;
         let service_api = &self.service_api;
 
         let service_opt = service_api
@@ -616,49 +613,25 @@ impl OperatorInner {
             .ok_or(ServiceError::OwnerReference)?;
 
         match service_opt {
-            // TODO: CheckServiceError: can be moved to func
-            Some(service) => {
-                tracing::info!("Service exists. Comparing.");
-
-                let service_orefs = service.owner_references();
-
-                if !service_orefs.contains(&crd_oref) {
-                    tracing::error!("Service does not have owner reference.");
-
-                    let mut crd_with_status = api
-                        .get_status(&crd_name)
-                        .await
-                        .map_err(|err| ServiceError::Check(CheckServiceError::GetStatus(err)))?;
-
-                    let status = OpenFaasFunctionStatus::Err(
-                        OpenFaasFunctionErrorStatus::ServiceAlreadyExists,
-                    );
-
-                    self.replace_status(&mut crd_with_status, status)
-                        .await
-                        .map_err(|err| ServiceError::Check(CheckServiceError::SetStatus(err)))?;
-
-                    // tracing::info!("Requeueing resource.");
-                    // return Ok(Some(Action::requeue(Duration::from_secs(10))));
-
-                    tracing::info!("Awaiting change.");
-                    return Ok(Some(Action::await_change()));
-                }
-
-                // TODO: Compare service
-            }
-            // TODO: CreateServiceError: can be moved to func
-            None => {
-                tracing::info!("Service does not exist. Creating.");
-                let service = Service::try_from(crd)
-                    .map_err(|err| ServiceError::Create(CreateServiceError::Generate(err)))?;
-
-                service_api
-                    .create(&PostParams::default(), &service)
+            Some(ref service) => {
+                if let Some(action) = self
+                    .check_existing_service(crd, &crd_oref, service)
+                    .instrument(trace_span!("CheckExistingService"))
                     .await
-                    .map_err(|err| ServiceError::Create(CreateServiceError::Apply(err)))?;
-
-                tracing::info!("Service created.");
+                    .map_err(ServiceError::Check)?
+                {
+                    return Ok(Some(action));
+                }
+            }
+            None => {
+                if let Some(action) = self
+                    .create_service(crd)
+                    .instrument(trace_span!("CreateService"))
+                    .await
+                    .map_err(ServiceError::Create)?
+                {
+                    return Ok(Some(action));
+                }
             }
         }
 
@@ -674,13 +647,70 @@ impl OperatorInner {
         Ok(None)
     }
 
+    async fn check_existing_service(
+        &self,
+        crd: &OpenFaaSFunction,
+        crd_oref: &OwnerReference,
+        service: &Service,
+    ) -> Result<Option<Action>, CheckServiceError> {
+        tracing::info!("Service exists. Comparing.");
+
+        let crd_name = crd.name_any();
+        let api = &self.api;
+        let service_orefs = service.owner_references();
+
+        if !service_orefs.contains(crd_oref) {
+            tracing::error!("Service does not have owner reference.");
+
+            let mut crd_with_status = api
+                .get_status(&crd_name)
+                .await
+                .map_err(CheckServiceError::GetStatus)?;
+
+            let status =
+                OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::ServiceAlreadyExists);
+
+            self.replace_status(&mut crd_with_status, status)
+                .await
+                .map_err(CheckServiceError::SetStatus)?;
+
+            tracing::info!("Awaiting change.");
+            return Ok(Some(Action::await_change()));
+        }
+
+        // TODO: Compare service
+
+        Ok(None)
+    }
+
+    async fn create_service(
+        &self,
+        crd: &OpenFaaSFunction,
+    ) -> Result<Option<Action>, CreateServiceError> {
+        tracing::info!("Service does not exist. Creating.");
+
+        let service_api = &self.service_api;
+
+        let service = Service::try_from(crd).map_err(CreateServiceError::Generate)?;
+
+        service_api
+            .create(&PostParams::default(), &service)
+            .await
+            .map_err(CreateServiceError::Apply)?;
+
+        tracing::info!("Service created.");
+
+        Ok(None)
+    }
+
     async fn delete_old_services(
         &self,
         crd: &OpenFaaSFunction,
         crd_oref: &OwnerReference,
     ) -> Result<Option<Action>, DeleteServicesError> {
-        tracing::info!("Checking for other services.");
-        // to be deleted are deps with same owner reference but different name as the serivce name
+        tracing::info!("Checking other services.");
+
+        // services to be deleted are services with same owner reference but different name as our spec serivce (function's name)
 
         let service_name = crd.spec.to_name();
         let service_api = &self.service_api;
