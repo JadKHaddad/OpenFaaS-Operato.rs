@@ -23,6 +23,11 @@ use std::sync::Arc;
 use tokio::time::Duration;
 use tracing::{trace_span, Instrument};
 
+enum CreateDeploymentAction {
+    Create,
+    Replace,
+}
+
 struct OperatorInner {
     functions_namespace: String,
     api: Api<OpenFaaSFunction>,
@@ -300,7 +305,7 @@ impl OperatorInner {
             }
             None => {
                 if let Some(action) = self
-                    .create_deployment(crd)
+                    .create_deployment(crd, CreateDeploymentAction::Create)
                     .instrument(trace_span!("CreateDeployment"))
                     .await
                     .map_err(DeploymentError::Create)?
@@ -400,47 +405,26 @@ impl OperatorInner {
                 .await
                 .map_err(CheckDeploymentError::SetStatus)?;
 
-            // tracing::info!("Requeueing resource.");
-            // return Ok(Some(Action::requeue(Duration::from_secs(10))));
-
             tracing::info!("Awaiting change.");
             return Ok(Some(Action::await_change()));
         }
 
-        crd.spec.debug_compare_deployment(deployment);
+        // crd.spec.debug_compare_deployment(deployment);
 
-        // TODO: Compare deployment
-        // needs_recreate?
-        // else
-        // needs_patch?
-        // else ok!
+        if crd.spec.deployment_needs_recreation(deployment) {
+            tracing::info!("Deployment needs recreation.");
 
-        // tracing::info!("Comparing deployment for patches.");
-        // if let Some(dep) = crd.spec.patch(deployment) {
-        //     tracing::info!("Patching.");
-
-        //     // replace removes old values
-        //     deployment_api
-        //         .replace(&deployment_name, &PostParams::default(), &dep)
-        //         .await
-        //         .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
-        // }
-
-        // if crd.spec.deplyoment_needs_patch(&deployment) {
-        //     tracing::info!("Patching.");
-
-        //     let crd_dep = Deployment::try_from(crd)
-        //         .map_err(|err| DeploymentError::Patch(PatchError::Generate(err)))?;
-
-        //     let patch = Patch::Merge(&crd_dep);
-
-        //     deployment_api
-        //         .patch(&deployment_name, &PatchParams::default(), &patch)
-        //         .await
-        //         .map_err(|err| DeploymentError::Patch(PatchError::Patch(err)))?;
-        // } else {
-        //     tracing::info!("Deployment is up to date.");
-        // }
+            if let Some(action) = self
+                .create_deployment(crd, CreateDeploymentAction::Replace)
+                .instrument(trace_span!("CreateDeployment"))
+                .await
+                .map_err(CheckDeploymentError::Create)?
+            {
+                return Ok(Some(action));
+            }
+        } else {
+            tracing::info!("Deployment is up to date.");
+        }
 
         Ok(None)
     }
@@ -448,10 +432,12 @@ impl OperatorInner {
     async fn create_deployment(
         &self,
         crd: &OpenFaaSFunction,
+        action: CreateDeploymentAction,
     ) -> Result<Option<Action>, CreateDeploymentError> {
         tracing::info!("Deployment does not exist. Creating.");
 
         let crd_name = crd.name_any();
+        let deployment_name = crd.spec.to_name();
         let api = &self.api;
         let deployment_api = &self.deployment_api;
 
@@ -465,14 +451,24 @@ impl OperatorInner {
         }
 
         match Deployment::try_from(crd) {
-            Ok(deployment) => {
-                tracing::info!("Deployment generated. Creating.");
+            Ok(deployment) => match action {
+                CreateDeploymentAction::Create => {
+                    tracing::info!("Deployment generated. Creating.");
+                    deployment_api
+                        .create(&PostParams::default(), &deployment)
+                        .await
+                        .map_err(CreateDeploymentError::Apply)?;
+                }
+                // TODO: How do we handle status here?
+                CreateDeploymentAction::Replace => {
+                    tracing::info!("Deployment generated. Replacing.");
+                    deployment_api
+                        .replace(&deployment_name, &PostParams::default(), &deployment)
+                        .await
+                        .map_err(CreateDeploymentError::Replace)?;
+                }
+            },
 
-                deployment_api
-                    .create(&PostParams::default(), &deployment)
-                    .await
-                    .map_err(CreateDeploymentError::Apply)?;
-            }
             Err(error) => {
                 tracing::error!(%error, "Failed to generate deployment.");
 
@@ -679,8 +675,6 @@ impl OperatorInner {
             tracing::info!("Awaiting change.");
             return Ok(Some(Action::await_change()));
         }
-
-        // TODO: Compare service
 
         Ok(None)
     }

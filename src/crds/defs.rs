@@ -43,12 +43,10 @@ pub struct OpenFaasFunctionSpec {
     /// list of names of secrets in the same namespace that will be mounted to secretsMountPath
     pub secrets: Option<Vec<String>>,
 
-    // automatically patched
     /// labels are metadata for functions which may be used by the
     /// faas-provider or the gateway
     pub labels: Option<HashMap<String, String>>,
 
-    // automatically patched
     /// annotations are metadata for functions which may be used by the
     /// faas-provider or the gateway
     pub annotations: Option<HashMap<String, String>>,
@@ -113,48 +111,6 @@ pub enum OpenFaasFunctionErrorStatus {
     #[error("The given secrets to mount do not exist")]
     SecretsNotFound,
 }
-
-pub enum DeploymentDiff {
-    /// ```Container``` is missing. Name: ```OpenFaasFunctionSpec::service```
-    Container,
-    /// If ```Container``` is not missing in the deployment containers, but ```Image``` is different
-    Image,
-    /// ```EnvProcess``` is missing or different
-    EnvProcess,
-    /// ```EnvVars``` are missing
-    NoEnvVars,
-    /// An ```EnvVar``` is missing or different
-    EnvVar(String),
-    /// ```Constraints``` are missing
-    NoConstraints,
-    /// A ```Constraint``` is missing
-    Constraints(String),
-    /// ```Secrets``` are missing
-    NoSecrets,
-    /// A ```Secret``` is missing or different
-    Secrets(String),
-    /// ```Labels``` are missing
-    NoLabels,
-    /// A ```Label``` is missing or different
-    Labels(String),
-    /// ```Annotations``` are missing
-    NoAnnotations,
-    /// An ```Annotation``` is missing or different
-    Annotation(String),
-    /// ```Limits``` are missing or different
-    Limits(ResourceDiff),
-    /// ```Requests``` are missing or different
-    Requests(ResourceDiff),
-    /// ```ReadOnlyRootFilesystem``` is missing or different
-    ReadOnlyRootFilesystem,
-}
-
-pub enum ResourceDiff {
-    Memory,
-    CPU,
-}
-
-pub enum ServiceDiff {}
 
 #[derive(ThisError, Debug)]
 pub enum FunctionIntoDeploymentError {

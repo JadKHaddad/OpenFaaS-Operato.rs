@@ -14,10 +14,10 @@ spec:
     label2: "value"
     label3: "value3"
   annotations:
-    annotatison2: "valuess298"
+    annotatison2: "valuess298889"
     annotation3: "value3"
   envVars:
-    envVar: "value"
+    envVar: "value89"
     envVar2: "value2"
     envVar2332: "vaaaaaaa"
   secrets:
@@ -26,8 +26,8 @@ spec:
     - s2accesskey
   readOnlyRootFilesystem: true
   limits:
-    cpu: "10ms"
-    memory: "30Mi"
+    cpu: "10m"
+    memory: "300Mi"
   requests:
     cpu: "10m"
     memory: "30Mi"

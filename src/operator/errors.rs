@@ -76,8 +76,6 @@ pub enum DeploymentError {
     Create(#[source] CreateDeploymentError),
     #[error("Failed to check deployment: {0}")]
     Check(#[source] CheckDeploymentError),
-    #[error("Failed to patch deployment: {0}")]
-    Patch(#[source] PatchError),
     #[error("Failed to delete deployment: {0}")]
     Delete(#[source] DeleteDeploymentsError),
 }
@@ -88,6 +86,8 @@ pub enum CheckDeploymentError {
     GetStatus(#[source] KubeError),
     #[error("Error setting status: {0}")]
     SetStatus(#[source] StatusError),
+    #[error("Failed to create deployment: {0}")]
+    Create(#[source] CreateDeploymentError),
 }
 
 #[derive(ThisError, Debug)]
@@ -98,6 +98,8 @@ pub enum CreateDeploymentError {
     Generate(#[source] FunctionIntoDeploymentError),
     #[error("Failed to apply deployment: {0}")]
     Apply(#[source] KubeError),
+    #[error("Failed to replace deployment: {0}")]
+    Replace(#[source] KubeError),
     #[error("Error getting status: {0}")]
     GetStatus(#[source] KubeError),
     #[error("Error setting status: {0}")]
@@ -110,14 +112,6 @@ pub enum DeleteDeploymentsError {
     List(#[source] KubeError),
     #[error("Error deleting deployment: {0}")]
     Delete(#[source] KubeError),
-}
-
-#[derive(ThisError, Debug)]
-pub enum PatchError {
-    #[error("Failed to generate deployment: {0}")]
-    Generate(#[source] FunctionIntoDeploymentError),
-    #[error("Failed to patch deployment: {0}")]
-    Patch(#[source] KubeError),
 }
 
 #[derive(ThisError, Debug)]
