@@ -14,9 +14,8 @@ spec:
     label2: "value"
     label3: "value3"
   annotations:
-    annotatison2: "valuess2"
+    annotatison2: "valuess298"
     annotation3: "value3"
-    anno: sda
   envVars:
     envVar: "value"
     envVar2: "value2"

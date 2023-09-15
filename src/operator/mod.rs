@@ -407,6 +407,8 @@ impl OperatorInner {
             return Ok(Some(Action::await_change()));
         }
 
+        crd.spec.debug_compare_deployment(deployment);
+
         // TODO: Compare deployment
         // needs_recreate?
         // else
