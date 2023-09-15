@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod consts;
 pub mod crds;
 mod openfaas_client;
