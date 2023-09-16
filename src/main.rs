@@ -11,9 +11,9 @@ use kube::{
     Api, Client as KubeClient, CustomResourceExt,
 };
 use openfaas_functions_operato_rs::{
-    cli::{Cli, Commands, CrdCommands, CrdConvertCommands},
+    cli::{Cli, Commands, CrdCommands, CrdConvertCommands, RunCommands},
     crds::defs::OpenFaaSFunction,
-    operator::Operator,
+    operator::{Operator, UpdateStrategy},
 };
 use tracing::{trace_span, Instrument};
 use tracing_subscriber::EnvFilter;
@@ -34,12 +34,17 @@ fn init_tracing() {
         .init();
 }
 
-async fn create_and_run_operator(client: KubeClient, functions_namespace: String) {
+async fn create_and_run_operator(
+    client: KubeClient,
+    functions_namespace: String,
+    update_strategy: UpdateStrategy,
+) {
     let span = trace_span!("Create", %functions_namespace);
 
-    let operator = Operator::new_with_check_functions_namespace(client, functions_namespace)
-        .instrument(span)
-        .await;
+    let operator =
+        Operator::new_with_check_functions_namespace(client, functions_namespace, update_strategy)
+            .instrument(span)
+            .await;
 
     operator.run().await;
 }
@@ -49,20 +54,27 @@ async fn main() -> AnyResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Run {
-            functions_namespace,
-        } => {
+        Commands::Run { command } => {
             init_tracing();
-
             let client = KubeClient::try_default().await?;
 
-            create_and_run_operator(client, functions_namespace)
-                .instrument(trace_span!("Operator"))
-                .await;
+            match command {
+                RunCommands::Controller {
+                    functions_namespace,
+                    update_strategy,
+                } => {
+                    create_and_run_operator(client, functions_namespace, update_strategy)
+                        .instrument(trace_span!("Operator"))
+                        .await;
+                }
+                RunCommands::Client { .. } => {
+                    tracing::warn!("Client mode is not implemented yet");
+                }
+            }
         }
         Commands::Crd { command } => match command {
-            CrdCommands::Write { path } => {
-                write_crd_to_file(path)?;
+            CrdCommands::Write { file } => {
+                write_crd_to_file(file)?;
             }
             CrdCommands::Print {} => {
                 print_crd()?;
@@ -83,13 +95,13 @@ async fn main() -> AnyResult<()> {
                     .delete(OpenFaaSFunction::crd_name(), &DeleteParams::default())
                     .await?;
             }
-            CrdCommands::Convert { crd_path, command } => {
-                let crd = read_crd_from_file(crd_path)?;
+            CrdCommands::Convert { crd_file, command } => {
+                let crd = read_crd_from_file(crd_file)?;
 
                 match command {
-                    CrdConvertCommands::Write { resource_path } => {
+                    CrdConvertCommands::Write { resource_file } => {
                         let yaml = crd.spec.to_yaml_string()?;
-                        std::fs::write(resource_path, yaml)
+                        std::fs::write(resource_file, yaml)
                             .context("Failed to write crd to file")?;
                     }
                     CrdConvertCommands::Print {} => {
