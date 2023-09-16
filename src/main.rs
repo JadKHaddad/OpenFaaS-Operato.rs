@@ -20,7 +20,7 @@ use tracing_subscriber::EnvFilter;
 
 fn init_tracing() {
     if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "openfaas_operato_rs=debug");
+        std::env::set_var("RUST_LOG", "openfaas_functions_operato_rs=info");
     }
 
     tracing_subscriber::fmt()
@@ -74,29 +74,25 @@ async fn main() -> AnyResult<()> {
         }
         Commands::Crd { command } => match command {
             CrdCommands::Write { file } => {
-                write_crd_to_file(file)?;
+                write_crd_to_file(file).await?;
             }
             CrdCommands::Print {} => {
                 print_crd()?;
             }
             CrdCommands::Install {} => {
                 let client = KubeClient::try_default().await?;
-
-                let api = Api::<CustomResourceDefinition>::all(client);
-                let _ = api
-                    .create(&PostParams::default(), &OpenFaaSFunction::crd())
-                    .await?;
+                install_crd(client).await?;
             }
             CrdCommands::Uninstall {} => {
                 let client = KubeClient::try_default().await?;
-
-                let api = Api::<CustomResourceDefinition>::all(client);
-                let _ = api
-                    .delete(OpenFaaSFunction::crd_name(), &DeleteParams::default())
-                    .await?;
+                uninstall_crd(client).await?;
+            }
+            CrdCommands::Update {} => {
+                let client = KubeClient::try_default().await?;
+                update_crd(client).await?;
             }
             CrdCommands::Convert { crd_file, command } => {
-                let crd = read_crd_from_file(crd_file)?;
+                let crd = read_crd_from_file(crd_file).await?;
 
                 match command {
                     CrdConvertCommands::Write { resource_file } => {
@@ -145,8 +141,10 @@ async fn main() -> AnyResult<()> {
     Ok(())
 }
 
-fn read_crd_from_file(path: PathBuf) -> AnyResult<OpenFaaSFunction> {
-    let crds = std::fs::read_to_string(path).context("Failed to read crd from file")?;
+async fn read_crd_from_file(path: PathBuf) -> AnyResult<OpenFaaSFunction> {
+    let crds = tokio::fs::read_to_string(path)
+        .await
+        .context("Failed to read crd from file")?;
     let crd = serde_yaml::from_str(&crds).context("Failed to parse crd")?;
     Ok(crd)
 }
@@ -160,8 +158,32 @@ fn print_crd() -> AnyResult<()> {
     Ok(())
 }
 
-fn write_crd_to_file(path: PathBuf) -> AnyResult<()> {
+async fn write_crd_to_file(path: PathBuf) -> AnyResult<()> {
     let crds = generate_crd_yaml()?;
-    std::fs::write(path, crds).context("Failed to write crd to file")?;
+    tokio::fs::write(path, crds)
+        .await
+        .context("Failed to write crd to file")?;
+    Ok(())
+}
+
+async fn install_crd(client: KubeClient) -> AnyResult<()> {
+    let api = Api::<CustomResourceDefinition>::all(client);
+    let _ = api
+        .create(&PostParams::default(), &OpenFaaSFunction::crd())
+        .await?;
+    Ok(())
+}
+
+async fn uninstall_crd(client: KubeClient) -> AnyResult<()> {
+    let api = Api::<CustomResourceDefinition>::all(client);
+    let _ = api
+        .delete(OpenFaaSFunction::crd_name(), &DeleteParams::default())
+        .await?;
+    Ok(())
+}
+
+async fn update_crd(client: KubeClient) -> AnyResult<()> {
+    uninstall_crd(client.clone()).await?;
+    install_crd(client).await?;
     Ok(())
 }

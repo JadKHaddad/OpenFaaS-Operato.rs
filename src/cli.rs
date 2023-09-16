@@ -86,6 +86,10 @@ pub enum CrdCommands {
     /// Uninstalls the CRDs from the cluster
     #[clap(visible_alias = "un")]
     Uninstall {},
+    /// Updates the CRDs in the cluster
+    /// This is equivalent to uninstalling and then installing the CRDs
+    #[clap(visible_alias = "up")]
+    Update {},
     /// Converts the CRDs to Kubernetes resources
     #[clap(visible_alias = "c")]
     Convert {
