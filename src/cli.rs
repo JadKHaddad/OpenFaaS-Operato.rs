@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use crate::{
     consts::{
         FUNCTIONS_DEFAULT_NAMESPACE, FUNCTIONS_NAMESPACE_ENV_VAR, GATEWAY_DEFAULT_URL,
-        GATEWAY_URL_ENV_VAR,
+        GATEWAY_URL_ENV_VAR, OPFOC_UPDATE_STRATEGY_ENV_VAR,
     },
     operator::UpdateStrategy,
 };
@@ -42,7 +42,7 @@ pub enum RunCommands {
         #[clap(short = 'n', long, env = FUNCTIONS_NAMESPACE_ENV_VAR, default_value = FUNCTIONS_DEFAULT_NAMESPACE)]
         functions_namespace: String,
         /// Update strategy for the operator
-        #[clap(short, long, value_enum, default_value_t = UpdateStrategy::default())]
+        #[clap(short, long, env = OPFOC_UPDATE_STRATEGY_ENV_VAR, value_enum, default_value_t = UpdateStrategy::default())]
         update_strategy: UpdateStrategy,
     },
     /// Runs the OpenFaaS functions operator in client mode

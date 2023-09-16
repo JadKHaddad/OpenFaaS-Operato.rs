@@ -54,6 +54,9 @@ async fn main() -> AnyResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        // TODO:
+        // remove finalizer from controller mode
+        // Operator => mode => controller/client => run/install/uninstall/update/generate
         Commands::Run { command } => {
             init_tracing();
             let client = KubeClient::try_default().await?;
@@ -68,7 +71,7 @@ async fn main() -> AnyResult<()> {
                         .await;
                 }
                 RunCommands::Client { .. } => {
-                    tracing::warn!("Client mode is not implemented yet");
+                    unimplemented!("Client mode is not implemented yet");
                 }
             }
         }
