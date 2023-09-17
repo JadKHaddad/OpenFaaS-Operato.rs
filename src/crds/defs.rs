@@ -8,6 +8,10 @@ use serde_yaml::Error as SerdeYamlError;
 use std::collections::HashMap;
 use thiserror::Error as ThisError;
 
+pub const GROUP: &str = "operato.rs";
+pub const VERSION: &str = "v1alpha1";
+pub const KIND: &str = "OpenFaaSFunction";
+pub const PLURAL: &str = "openfaasfunctions";
 pub const FINALIZER_NAME: &str = "openfaasfunctions.operato.rs/finalizer";
 pub const LAST_APPLIED_ANNOTATION: &str = "openfaasfunctions.operato.rs/last-applied-spec";
 

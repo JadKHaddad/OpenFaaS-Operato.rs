@@ -5,3 +5,8 @@ pub const GATEWAY_URL_ENV_VAR: &str = "OPENFAAS_GATEWAY_URL";
 pub const GATEWAY_DEFAULT_URL: &str = "http://gateway.openfaas:8080";
 
 pub const OPFOC_UPDATE_STRATEGY_ENV_VAR: &str = "OPFOC_UPDATE_STRATEGY";
+
+pub const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
+
+pub const DEFAULT_IMAGE: &str = "docker.io/jadkhaddad/openfaas_functions_operato_rs";

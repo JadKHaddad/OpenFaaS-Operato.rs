@@ -1,3 +1,4 @@
+mod deplyoment;
 mod errors;
 
 use crate::crds::defs::{
@@ -804,6 +805,10 @@ impl Operator {
         }
 
         Self::new(client, functions_namespace, update_strategy)
+    }
+
+    pub fn functions_namespace(&self) -> &str {
+        &self.inner.functions_namespace
     }
 
     pub async fn run(self) {
