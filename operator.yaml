@@ -71,3 +71,6 @@ spec:
           args:
             - run
             - controller
+          env:
+            - name: RUST_LOG
+              value: openfaas_functions_operato_rs=info,kube=off
