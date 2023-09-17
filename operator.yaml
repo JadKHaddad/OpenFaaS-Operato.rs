@@ -67,7 +67,7 @@ spec:
       serviceAccountName: openfaas-functions-operator
       containers:
         - name: openfaas-functions-operator
-          image: docker.io/jadkhaddad/openfaas_operato_rs:latest
+          image: docker.io/jadkhaddad/openfaas_operato_rs:0.1.0
           args:
             - run
             - controller

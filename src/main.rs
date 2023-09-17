@@ -55,7 +55,6 @@ async fn main() -> AnyResult<()> {
 
     match cli.command {
         // TODO:
-        // remove finalizer from controller mode
         // Operator => mode => controller/client => run/install/uninstall/update/generate
         Commands::Run { command } => {
             init_tracing();

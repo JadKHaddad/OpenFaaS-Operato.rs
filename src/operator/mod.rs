@@ -1,8 +1,7 @@
 mod errors;
 
 use crate::crds::defs::{
-    OpenFaaSFunction, OpenFaasFunctionErrorStatus, OpenFaasFunctionOkStatus,
-    OpenFaasFunctionStatus, FINALIZER_NAME,
+    OpenFaaSFunction, OpenFaasFunctionErrorStatus, OpenFaasFunctionOkStatus, OpenFaasFunctionStatus,
 };
 use crate::operator::errors::*;
 use futures::stream::StreamExt;
@@ -15,8 +14,8 @@ use k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference;
 use kube::api::DeleteParams;
 use kube::{
     api::{ListParams, PostParams},
-    runtime::{controller::Action, finalizer::Event, watcher::Config},
-    runtime::{finalizer, Controller},
+    runtime::Controller,
+    runtime::{controller::Action, watcher::Config},
     Api, Client as KubeClient, Resource, ResourceExt,
 };
 use std::{
@@ -92,27 +91,10 @@ impl OperatorInner {
             return Err(ReconcileError::Namespace);
         };
 
-        let api = self.api.clone();
-
-        let reconcile_resource_span = trace_span!("ReconcileResource", %name, %crd_namespace);
-        finalizer(&api, FINALIZER_NAME, crd, |event| async move {
-            match event {
-                Event::Apply(crd) => self
-                    .apply(crd, &crd_namespace)
-                    .instrument(trace_span!("ApplyResource"))
-                    .await
-                    .map_err(FinalizeError::Apply),
-
-                Event::Cleanup(crd) => self
-                    .cleanup(crd, &crd_namespace)
-                    .instrument(trace_span!("CleanupResource"))
-                    .await
-                    .map_err(FinalizeError::Cleanup),
-            }
-        })
-        .instrument(reconcile_resource_span)
-        .await
-        .map_err(ReconcileError::FinalizeError)
+        self.apply(crd, &crd_namespace)
+            .instrument(trace_span!("ReconcileResource", %name, %crd_namespace))
+            .await
+            .map_err(ReconcileError::Apply)
     }
 
     async fn apply(
@@ -168,20 +150,6 @@ impl OperatorInner {
         {
             return Ok(action);
         }
-
-        tracing::info!("Awaiting change.");
-
-        Ok(Action::await_change())
-    }
-
-    async fn cleanup(
-        &self,
-        _crd: Arc<OpenFaaSFunction>,
-        _crd_namespace: &str,
-    ) -> Result<Action, CleanupError> {
-        tracing::info!("Cleaning up resource.");
-
-        tracing::info!("Nothing to do here. We use OwnerReferences.");
 
         tracing::info!("Awaiting change.");
 

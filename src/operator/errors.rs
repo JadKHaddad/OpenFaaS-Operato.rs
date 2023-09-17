@@ -1,15 +1,15 @@
 use crate::crds::defs::{
     FunctionIntoDeploymentError, FunctionIntoServiceError, OpenFaasFunctionStatus,
 };
-use kube::{runtime::finalizer::Error as FinalizerError, Error as KubeError};
+use kube::Error as KubeError;
 use thiserror::Error as ThisError;
 
 #[derive(ThisError, Debug)]
 pub enum ReconcileError {
     #[error("Resource has no namespace.")]
     Namespace,
-    #[error("Failed to finalize resource: {0}")]
-    FinalizeError(#[source] FinalizerError<FinalizeError>),
+    #[error("Failed to apply resource: {0}")]
+    Apply(#[source] ApplyError),
 }
 
 #[derive(ThisError, Debug)]
@@ -158,15 +158,4 @@ pub enum DeployedStatusError {
     GetStatus(#[source] KubeError),
     #[error("Error setting status: {0}")]
     SetStatus(#[source] StatusError),
-}
-
-#[derive(ThisError, Debug)]
-pub enum CleanupError {}
-
-#[derive(ThisError, Debug)]
-pub enum FinalizeError {
-    #[error("Failed to apply resource: {0}")]
-    Apply(#[source] ApplyError),
-    #[error("Failed to cleanup resource: {0}")]
-    Cleanup(#[source] CleanupError),
 }
