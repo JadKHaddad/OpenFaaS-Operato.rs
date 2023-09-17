@@ -4,25 +4,16 @@ metadata:
   name: openfaas-functions-operator
   namespace: openfaas-fn
 ---
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: openfaas-functions-operator-clusterrole
-  labels:
-    rbac.authorization.k8s.io/aggregate-to-admin: "true"
-    rbac.authorization.k8s.io/aggregate-to-edit: "true"
-    rbac.authorization.k8s.io/aggregate-to-view: "true"
-rules:
-  - apiGroups: ["operato.rs"]
-    resources: ["openfaasfunctions"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: openfaas-functions-operator-role
   namespace: openfaas-fn
 rules:
+  - apiGroups: ["operato.rs"]
+    resources: ["openfaasfunctions"]
+    verbs: ["*"]
+
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get"]
@@ -33,11 +24,11 @@ rules:
 
   - apiGroups: ["apps"]
     resources: ["deployments"]
-    verbs: ["list", "create", "update", "get", "delete"]
+    verbs: ["*"]
 
   - apiGroups: [""]
     resources: ["services"]
-    verbs: ["list", "get", "create", "delete"]
+    verbs: ["*"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
