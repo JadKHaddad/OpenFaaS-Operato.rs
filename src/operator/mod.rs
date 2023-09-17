@@ -19,7 +19,10 @@ use kube::{
     runtime::{finalizer, Controller},
     Api, Client as KubeClient, Resource, ResourceExt,
 };
-use std::sync::Arc;
+use std::{
+    fmt::{self, Display, Formatter},
+    sync::Arc,
+};
 use tokio::time::Duration;
 use tracing::{trace_span, Instrument};
 
@@ -31,6 +34,15 @@ pub enum UpdateStrategy {
     OneWay,
     /// The desired state of the CRD always matches the state of the resources
     Strategic,
+}
+
+impl Display for UpdateStrategy {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            UpdateStrategy::OneWay => write!(f, "OneWay"),
+            UpdateStrategy::Strategic => write!(f, "Strategic"),
+        }
+    }
 }
 
 enum CreateDeploymentAction {

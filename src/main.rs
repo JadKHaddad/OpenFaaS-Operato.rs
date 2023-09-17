@@ -66,6 +66,8 @@ async fn main() -> AnyResult<()> {
                     functions_namespace,
                     update_strategy,
                 } => {
+                    tracing::info!(%functions_namespace, %update_strategy, "Running with current config.");
+
                     create_and_run_operator(client, functions_namespace, update_strategy)
                         .instrument(trace_span!("Operator"))
                         .await;
