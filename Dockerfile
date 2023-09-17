@@ -1,24 +1,31 @@
-FROM rust:alpine3.17 as builder
+FROM alpine:3.18 as builder
 
-RUN apk add --no-cache musl-dev openssl-dev
+RUN apk update \
+    && apk add --no-cache cargo=1.71.1-r0 openssl-dev
 
 WORKDIR /home/app
 
 COPY . /home/app
 
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/home/app/target \
-    cargo build --release
+RUN cargo build --release
 
-FROM alpine:3.17 as runner
+FROM alpine:3.18 as runner
+
+RUN apk update \
+    && apk add --no-cache libgcc
 
 RUN addgroup --system app && adduser app --system --ingroup app
+
+COPY --from=builder /home/app/target/release/openfaas_functions_operato_rs /usr/local/bin/openfaas_functions_operato_rs
+
 USER app
 
-COPY --from=builder /home/app/target/release/openfaas_operato_rs /usr/local/bin/openfaas_operato_rs
+WORKDIR /home/app
 
-RUN chmod +x /usr/local/bin/openfaas_operato_rs
+RUN mkdir -p /home/app/.kube
 
-ENTRYPOINT ["/usr/local/bin/openfaas_operato_rs"]
+ENTRYPOINT ["openfaas_functions_operato_rs"]
 
-# DOCKER_BUILDKIT=1 docker build -t openfaas_operato_rs:latest . --progress=plain
+# docker build -t openfaas_operato_rs:latest .
+# docker run --rm -it -v ${USERPROFILE}/.kube:/home/app/.kube openfaas_operato_rs:latest run controller
+# docker run --rm -it -v ~/.kube:/home/app/.kube openfaas_operato_rs:latest run controller
