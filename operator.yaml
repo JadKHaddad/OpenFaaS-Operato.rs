@@ -11,7 +11,12 @@ metadata:
   namespace: openfaas-fn
 rules:
   - apiGroups: ["operato.rs"]
-    resources: ["openfaasfunctions"]
+    resources:
+      [
+        "openfaasfunctions",
+        "openfaasfunctions/status",
+        "openfaasfunctions/finalizers",
+      ]
     verbs: ["*"]
 
   - apiGroups: [""]
@@ -42,19 +47,6 @@ subjects:
 roleRef:
   kind: Role
   name: openfaas-functions-operator-role
-  apiGroup: rbac.authorization.k8s.io
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: openfaas-functions-operator-clusterrolebinding
-subjects:
-  - kind: ServiceAccount
-    name: openfaas-functions-operator
-    namespace: openfaas-fn
-roleRef:
-  kind: ClusterRole
-  name: openfaas-functions-operator-clusterrole
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: apps/v1
