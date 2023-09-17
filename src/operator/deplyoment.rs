@@ -12,6 +12,8 @@ use k8s_openapi::{
 use kube::core::ObjectMeta;
 use std::collections::BTreeMap;
 
+//TODO: normal function with param for namespace and image
+
 const NAME: &str = "openfaas-functions-operator";
 
 impl Operator {
