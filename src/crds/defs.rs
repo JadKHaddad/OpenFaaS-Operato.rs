@@ -3,6 +3,8 @@ use kube::CustomResource;
 use kube_quantity::ParseQuantityError;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Error as SerdeJsonError;
+use serde_yaml::Error as SerdeYamlError;
 use std::collections::HashMap;
 use thiserror::Error as ThisError;
 
@@ -75,7 +77,6 @@ pub struct FunctionResources {
     /// cpu is the cpu limit for the function
     pub cpu: Option<String>,
 }
-
 pub struct FunctionResourcesQuantity {
     pub memory: Option<Quantity>,
     pub cpu: Option<Quantity>,
@@ -113,6 +114,20 @@ pub enum OpenFaasFunctionErrorStatus {
 }
 
 #[derive(ThisError, Debug)]
+pub enum FunctionSpecIntoYamlError {
+    #[error("Failed to generate deployment: {0}")]
+    Deployment(FunctionSpecIntoDeploymentError),
+    #[error("Failed to generate service: {0}")]
+    Service(FunctionSpecIntoServiceError),
+    #[error("Failed to serialize: {0}")]
+    Serialize(
+        #[source]
+        #[from]
+        SerdeYamlError,
+    ),
+}
+
+#[derive(ThisError, Debug)]
 pub enum FunctionIntoDeploymentError {
     #[error("Failed to get owner reference")]
     OwnerReference,
@@ -130,7 +145,7 @@ pub enum FunctionSpecIntoDeploymentError {
     Serialize(
         #[source]
         #[from]
-        serde_json::Error,
+        SerdeJsonError,
     ),
     #[error("Failed to parse quantity: {0} | Quantity must match ^([+-]?[0-9.]+)([eEinumkKMGTP][-+]?[0-9])$")]
     Quantity(
@@ -158,7 +173,7 @@ pub enum FunctionSpecIntoServiceError {
     Serialize(
         #[source]
         #[from]
-        serde_json::Error,
+        SerdeJsonError,
     ),
 }
 

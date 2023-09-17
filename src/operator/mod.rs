@@ -19,9 +19,31 @@ use kube::{
     runtime::{finalizer, Controller},
     Api, Client as KubeClient, Resource, ResourceExt,
 };
-use std::sync::Arc;
+use std::{
+    fmt::{self, Display, Formatter},
+    sync::Arc,
+};
 use tokio::time::Duration;
 use tracing::{trace_span, Instrument};
+
+/// The OpenFaaS functions operator update strategy
+#[derive(Debug, Clone, clap::ValueEnum, Default)]
+pub enum UpdateStrategy {
+    ///  Resources are updated only when changes occur in the Custom Resource Definition (CRD)
+    #[default]
+    OneWay,
+    /// The desired state of the CRD always matches the state of the resources
+    Strategic,
+}
+
+impl Display for UpdateStrategy {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            UpdateStrategy::OneWay => write!(f, "OneWay"),
+            UpdateStrategy::Strategic => write!(f, "Strategic"),
+        }
+    }
+}
 
 enum CreateDeploymentAction {
     Create,
@@ -34,10 +56,15 @@ struct OperatorInner {
     deployment_api: Api<Deployment>,
     service_api: Api<Service>,
     secrets_api: Api<Secret>,
+    update_strategy: UpdateStrategy,
 }
 
 impl OperatorInner {
-    fn new(kubernetes_client: KubeClient, functions_namespace: String) -> Self {
+    fn new(
+        kubernetes_client: KubeClient,
+        functions_namespace: String,
+        update_strategy: UpdateStrategy,
+    ) -> Self {
         let api: Api<OpenFaaSFunction> =
             Api::namespaced(kubernetes_client.clone(), &functions_namespace);
         let deployment_api: Api<Deployment> =
@@ -53,6 +80,7 @@ impl OperatorInner {
             deployment_api,
             service_api,
             secrets_api,
+            update_strategy,
         }
     }
 
@@ -409,21 +437,27 @@ impl OperatorInner {
             return Ok(Some(Action::await_change()));
         }
 
-        // crd.spec.debug_compare_deployment(deployment);
+        match self.update_strategy {
+            UpdateStrategy::OneWay => {
+                if crd.spec.deployment_needs_recreation(deployment) {
+                    tracing::info!("Deployment needs recreation.");
 
-        if crd.spec.deployment_needs_recreation(deployment) {
-            tracing::info!("Deployment needs recreation.");
-
-            if let Some(action) = self
-                .create_deployment(crd, CreateDeploymentAction::Replace)
-                .instrument(trace_span!("CreateDeployment"))
-                .await
-                .map_err(CheckDeploymentError::Create)?
-            {
-                return Ok(Some(action));
+                    if let Some(action) = self
+                        .create_deployment(crd, CreateDeploymentAction::Replace)
+                        .instrument(trace_span!("CreateDeployment"))
+                        .await
+                        .map_err(CheckDeploymentError::Create)?
+                    {
+                        return Ok(Some(action));
+                    }
+                } else {
+                    tracing::info!("Deployment is up to date.");
+                }
             }
-        } else {
-            tracing::info!("Deployment is up to date.");
+            UpdateStrategy::Strategic => {
+                tracing::warn!("Strategic update strategy is not implemented yet.");
+                // crd.spec.debug_compare_deployment(deployment);
+            }
         }
 
         Ok(None)
@@ -765,8 +799,16 @@ pub struct Operator {
 }
 
 impl Operator {
-    pub fn new(client: KubeClient, functions_namespace: String) -> Self {
-        let inner = Arc::new(OperatorInner::new(client, functions_namespace));
+    pub fn new(
+        client: KubeClient,
+        functions_namespace: String,
+        update_strategy: UpdateStrategy,
+    ) -> Self {
+        let inner = Arc::new(OperatorInner::new(
+            client,
+            functions_namespace,
+            update_strategy,
+        ));
 
         Self { inner }
     }
@@ -774,6 +816,7 @@ impl Operator {
     pub async fn new_with_check_functions_namespace(
         client: KubeClient,
         functions_namespace: String,
+        update_strategy: UpdateStrategy,
     ) -> Self {
         tracing::info!("Checking if namespace exists.");
         let namespace_api: Api<Namespace> = Api::all(client.clone());
@@ -792,7 +835,7 @@ impl Operator {
             }
         }
 
-        Self::new(client, functions_namespace)
+        Self::new(client, functions_namespace, update_strategy)
     }
 
     pub async fn run(self) {

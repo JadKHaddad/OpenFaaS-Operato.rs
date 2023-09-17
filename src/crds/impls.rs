@@ -3,8 +3,8 @@ use crate::utils;
 use super::defs::{
     FunctionIntoDeploymentError, FunctionIntoServiceError, FunctionResources,
     FunctionResourcesQuantity, FunctionSpecIntoDeploymentError, FunctionSpecIntoServiceError,
-    IntoQuantityError, OpenFaaSFunction, OpenFaasFunctionErrorStatus, OpenFaasFunctionOkStatus,
-    OpenFaasFunctionSpec, LAST_APPLIED_ANNOTATION,
+    FunctionSpecIntoYamlError, IntoQuantityError, OpenFaaSFunction, OpenFaasFunctionErrorStatus,
+    OpenFaasFunctionOkStatus, OpenFaasFunctionSpec, LAST_APPLIED_ANNOTATION,
 };
 use itertools::Itertools;
 use k8s_openapi::{
@@ -20,7 +20,7 @@ use k8s_openapi::{
         api::resource::Quantity, apis::meta::v1::LabelSelector, util::intstr::IntOrString,
     },
 };
-use kube::core::{CustomResourceExt, ObjectMeta, Resource};
+use kube::core::{ObjectMeta, Resource};
 use kube_quantity::ParsedQuantity;
 use serde_json::Error as SerdeJsonError;
 use std::{collections::BTreeMap, fmt::Display};
@@ -331,6 +331,23 @@ impl OpenFaasFunctionSpec {
             read_only: Some(true),
             ..Default::default()
         }
+    }
+
+    pub fn to_yaml_string(&self) -> Result<String, FunctionSpecIntoYamlError> {
+        let mut string = String::new();
+        let deployment =
+            Deployment::try_from(self).map_err(FunctionSpecIntoYamlError::Deployment)?;
+        let deplyoment_str =
+            serde_yaml::to_string(&deployment).map_err(FunctionSpecIntoYamlError::Serialize)?;
+        let service = Service::try_from(self).map_err(FunctionSpecIntoYamlError::Service)?;
+        let service_str =
+            serde_yaml::to_string(&service).map_err(FunctionSpecIntoYamlError::Serialize)?;
+
+        string.push_str(&deplyoment_str);
+        string.push_str("---\n");
+        string.push_str(&service_str);
+
+        Ok(string)
     }
 }
 
@@ -690,21 +707,6 @@ impl TryFrom<&OpenFaasFunctionSpec> for Service {
             spec: Option::<ServiceSpec>::from(value),
             ..Default::default()
         })
-    }
-}
-
-impl OpenFaaSFunction {
-    pub fn generate_crds() -> String {
-        serde_yaml::to_string(&OpenFaaSFunction::crd()).expect("Failed to generate crds")
-    }
-
-    pub fn print_crds() {
-        println!("{:#?}", OpenFaaSFunction::generate_crds());
-    }
-
-    pub fn write_crds_to_file(path: &str) {
-        let crds = OpenFaaSFunction::generate_crds();
-        std::fs::write(path, crds).expect("Failed to write crds to file");
     }
 }
 
