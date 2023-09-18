@@ -1,5 +1,5 @@
 use super::Operator;
-use crate::consts::{DEFAULT_IMAGE, PKG_NAME, PKG_VERSION};
+use crate::consts::{DEFAULT_IMAGE_WITH_TAG, PKG_NAME, PKG_VERSION};
 use crate::crds::defs::{GROUP, PLURAL};
 use k8s_openapi::{
     api::{
@@ -129,7 +129,7 @@ impl From<&Operator> for Deployment {
                         service_account_name: Some(NAME.to_string()),
                         containers: vec![Container {
                             name: NAME.to_string(),
-                            image: Some(format!("{}:{}", DEFAULT_IMAGE, PKG_VERSION)),
+                            image: Some(format!("{}:{}", DEFAULT_IMAGE_WITH_TAG, PKG_VERSION)),
                             args: Some(vec![String::from("run"), String::from("controller")]),
                             env: Some(vec![EnvVar {
                                 name: String::from("RUST_LOG"),

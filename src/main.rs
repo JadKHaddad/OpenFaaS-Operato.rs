@@ -11,7 +11,11 @@ use kube::{
     Api, Client as KubeClient, CustomResourceExt,
 };
 use openfaas_functions_operato_rs::{
-    cli::{Cli, Commands, CrdCommands, CrdConvertCommands, RunCommands},
+    cli::{
+        Cli, Commands, CrdCommands, CrdConvertCommands, OperatorCommands, OperatorDeployCommands,
+        OperatorSubCommands,
+    },
+    consts::DEFAULT_IMAGE,
     crds::defs::OpenFaaSFunction,
     operator::{Operator, UpdateStrategy},
 };
@@ -54,28 +58,46 @@ async fn main() -> AnyResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        // TODO:
-        // Operator => mode => controller/client => run/install/uninstall/update/generate
-        Commands::Run { command } => {
-            init_tracing();
-            let client = KubeClient::try_default().await?;
+        Commands::Operator { command } => match *command {
+            OperatorCommands::Controller {
+                functions_namespace,
+                update_strategy,
+                command,
+            } => match command {
+                OperatorSubCommands::Run {} => {
+                    init_tracing();
+                    let client = KubeClient::try_default().await?;
 
-            match command {
-                RunCommands::Controller {
-                    functions_namespace,
-                    update_strategy,
-                } => {
                     tracing::info!(%functions_namespace, %update_strategy, "Running with current config.");
 
                     create_and_run_operator(client, functions_namespace, update_strategy)
                         .instrument(trace_span!("Operator"))
                         .await;
                 }
-                RunCommands::Client { .. } => {
-                    unimplemented!("Client mode is not implemented yet");
+                OperatorSubCommands::Deploy {
+                    app_name,
+                    image_name,
+                    image_version,
+                    command,
+                } => {
+                    let image = if let Some(image_version) = image_version {
+                        format!("{}:{}", DEFAULT_IMAGE, image_version)
+                    } else {
+                        image_name
+                    };
+                    match command {
+                        OperatorDeployCommands::Write { file } => {}
+                        OperatorDeployCommands::Print {} => {}
+                        OperatorDeployCommands::Install {} => {}
+                        OperatorDeployCommands::Uninstall {} => {}
+                        OperatorDeployCommands::Update {} => {}
+                    }
                 }
+            },
+            OperatorCommands::Client { .. } => {
+                unimplemented!("Client mode is not implemented yet");
             }
-        }
+        },
         Commands::Crd { command } => match command {
             CrdCommands::Write { file } => {
                 write_crd_to_file(file).await?;
