@@ -2,18 +2,24 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result as AnyResult};
 use clap::Parser;
+use either::Either::Left;
 use k8s_openapi::{
     api::{apps::v1::Deployment, core::v1::Service},
     apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition,
 };
 use kube::{
     api::{DeleteParams, PostParams},
-    Api, Client as KubeClient, CustomResourceExt,
+    runtime::{conditions, wait::await_condition},
+    Api, Client as KubeClient, CustomResourceExt, ResourceExt,
 };
 use openfaas_functions_operato_rs::{
-    cli::{Cli, Commands, CrdCommands, CrdConvertCommands, RunCommands},
-    crds::defs::OpenFaaSFunction,
-    operator::{Operator, UpdateStrategy},
+    cli::{
+        Cli, Commands, CrdCommands, CrdConvertCommands, OperatorCommands, OperatorDeployCommands,
+        OperatorSubCommands,
+    },
+    consts::DEFAULT_IMAGE,
+    crds::defs::{OpenFaaSFunction, NAME},
+    operator::{deplyoment::DeploymentBuilder, Operator, UpdateStrategy},
 };
 use tracing::{trace_span, Instrument};
 use tracing_subscriber::EnvFilter;
@@ -54,29 +60,68 @@ async fn main() -> AnyResult<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        // TODO:
-        // remove finalizer from controller mode
-        // Operator => mode => controller/client => run/install/uninstall/update/generate
-        Commands::Run { command } => {
-            init_tracing();
-            let client = KubeClient::try_default().await?;
+        Commands::Operator { command } => match *command {
+            OperatorCommands::Controller {
+                functions_namespace,
+                update_strategy,
+                command,
+            } => match command {
+                OperatorSubCommands::Run {} => {
+                    init_tracing();
+                    let client = KubeClient::try_default().await?;
 
-            match command {
-                RunCommands::Controller {
-                    functions_namespace,
-                    update_strategy,
-                } => {
                     tracing::info!(%functions_namespace, %update_strategy, "Running with current config.");
 
                     create_and_run_operator(client, functions_namespace, update_strategy)
                         .instrument(trace_span!("Operator"))
                         .await;
                 }
-                RunCommands::Client { .. } => {
-                    unimplemented!("Client mode is not implemented yet");
+                OperatorSubCommands::Deploy {
+                    app_name,
+                    image_name,
+                    image_version,
+                    command,
+                } => {
+                    let image = if let Some(image_version) = image_version {
+                        format!("{}:{}", DEFAULT_IMAGE, image_version)
+                    } else {
+                        image_name
+                    };
+
+                    let deployment_builder = DeploymentBuilder::new(
+                        app_name,
+                        functions_namespace.clone(),
+                        image,
+                        update_strategy,
+                    );
+
+                    let yaml = deployment_builder.to_yaml_string()?;
+
+                    match command {
+                        OperatorDeployCommands::Write { file } => {
+                            tokio::fs::write(file, yaml)
+                                .await
+                                .context("Failed to write resources to file")?;
+                        }
+                        OperatorDeployCommands::Print {} => {
+                            println!("{}", yaml);
+                        }
+                        OperatorDeployCommands::Install {} => {
+                            unimplemented!("Installis not implemented yet");
+                        }
+                        OperatorDeployCommands::Uninstall {} => {
+                            unimplemented!("Uninstall is not implemented yet");
+                        }
+                        OperatorDeployCommands::Update {} => {
+                            unimplemented!("Update is not implemented yet");
+                        }
+                    }
                 }
+            },
+            OperatorCommands::Client { .. } => {
+                unimplemented!("Client mode is not implemented yet");
             }
-        }
+        },
         Commands::Crd { command } => match command {
             CrdCommands::Write { file } => {
                 write_crd_to_file(file).await?;
@@ -176,19 +221,30 @@ async fn install_crd(client: KubeClient) -> AnyResult<()> {
     let _ = api
         .create(&PostParams::default(), &OpenFaaSFunction::crd())
         .await?;
+
+    await_condition(api, NAME, conditions::is_crd_established()).await?;
+
     Ok(())
 }
 
 async fn uninstall_crd(client: KubeClient) -> AnyResult<()> {
     let api = Api::<CustomResourceDefinition>::all(client);
-    let _ = api
-        .delete(OpenFaaSFunction::crd_name(), &DeleteParams::default())
-        .await?;
+
+    let obj = api.delete(NAME, &Default::default()).await?;
+    if let Left(o) = obj {
+        match o.uid() {
+            Some(uid) => {
+                await_condition(api, NAME, conditions::is_deleted(&uid)).await?;
+            }
+            None => {
+                tracing::warn!("Could not find crd's uid");
+            }
+        }
+    }
+
     Ok(())
 }
 
-async fn update_crd(client: KubeClient) -> AnyResult<()> {
-    uninstall_crd(client.clone()).await?;
-    install_crd(client).await?;
-    Ok(())
+async fn update_crd(_client: KubeClient) -> AnyResult<()> {
+    unimplemented!("Update is not implemented yet")
 }

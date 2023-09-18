@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use crate::{
     consts::{
-        FUNCTIONS_DEFAULT_NAMESPACE, FUNCTIONS_NAMESPACE_ENV_VAR, GATEWAY_DEFAULT_URL,
-        GATEWAY_URL_ENV_VAR, OPFOC_UPDATE_STRATEGY_ENV_VAR,
+        DEFAULT_IMAGE_WITH_TAG, FUNCTIONS_DEFAULT_NAMESPACE, FUNCTIONS_NAMESPACE_ENV_VAR,
+        GATEWAY_DEFAULT_URL, GATEWAY_URL_ENV_VAR, OPFOC_UPDATE_STRATEGY_ENV_VAR,
     },
     operator::UpdateStrategy,
 };
@@ -19,11 +19,11 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Runs the OpenFaaS functions operator
-    #[clap(visible_alias = "r")]
-    Run {
+    /// Operator commands
+    #[clap(visible_alias = "o")]
+    Operator {
         #[command(subcommand)]
-        command: RunCommands,
+        command: Box<OperatorCommands>,
     },
     /// Custom definition resource (CRD) commands
     #[clap(visible_alias = "c")]
@@ -34,7 +34,7 @@ pub enum Commands {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum RunCommands {
+pub enum OperatorCommands {
     /// Runs the OpenFaaS functions operator in controller mode
     #[clap(visible_alias = "co")]
     Controller {
@@ -44,6 +44,9 @@ pub enum RunCommands {
         /// Update strategy for the operator
         #[clap(short, long, env = OPFOC_UPDATE_STRATEGY_ENV_VAR, value_enum, default_value_t = UpdateStrategy::default())]
         update_strategy: UpdateStrategy,
+
+        #[command(subcommand)]
+        command: OperatorSubCommands,
     },
     /// Runs the OpenFaaS functions operator in client mode
     #[clap(visible_alias = "cl")]
@@ -65,7 +68,57 @@ pub enum RunCommands {
         /// If this is set, the password argument is ignored
         #[clap(long)]
         password_file: Option<PathBuf>,
+
+        #[command(subcommand)]
+        command: OperatorSubCommands,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum OperatorSubCommands {
+    /// Runs the OpenFaaS functions operator
+    #[clap(visible_alias = "r")]
+    Run {},
+    /// Generates the Kubernetes resources for the OpenFaaS functions operator
+    #[clap(visible_alias = "d")]
+    Deploy {
+        /// The name of the OpenFaaS functions operator
+        #[clap(short, long, default_value = "openfaas-functions-operator")]
+        app_name: String,
+        /// The name of the image to use for the OpenFaaS functions operator
+        #[clap(short = 'i', long, default_value = DEFAULT_IMAGE_WITH_TAG)]
+        image_name: String,
+        /// The version of the image to use for the OpenFaaS functions operator
+        /// If this is set, the image_name argument is ignored, and the image_name is set to the default image
+        #[clap(short = 'v', long)]
+        image_version: Option<String>,
+
+        #[command(subcommand)]
+        command: OperatorDeployCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum OperatorDeployCommands {
+    /// Writes the Kubernetes resources to a file
+    #[clap(visible_alias = "w")]
+    Write {
+        /// The path to the file to write the Kubernetes resources to
+        #[clap(short, long)]
+        file: PathBuf,
+    },
+    /// Prints the Kubernetes resources to stdout
+    #[clap(visible_alias = "p")]
+    Print {},
+    /// Applies the Kubernetes resources to the cluster
+    #[clap(visible_alias = "in")]
+    Install {},
+    /// Deletes the Kubernetes resources from the cluster
+    #[clap(visible_alias = "un")]
+    Uninstall {},
+    /// Updates the Kubernetes resources in the cluster
+    #[clap(visible_alias = "up")]
+    Update {},
 }
 
 #[derive(Subcommand, Debug)]
@@ -87,7 +140,6 @@ pub enum CrdCommands {
     #[clap(visible_alias = "un")]
     Uninstall {},
     /// Updates the CRDs in the cluster
-    /// This is equivalent to uninstalling and then installing the CRDs
     #[clap(visible_alias = "up")]
     Update {},
     /// Converts the CRDs to Kubernetes resources

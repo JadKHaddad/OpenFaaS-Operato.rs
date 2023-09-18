@@ -7,23 +7,17 @@ spec:
   service: nodeinfo
   image: ghcr.io/openfaas/nodeinfo:latest
   namespace: openfaas-fn
-  # constraints:
-  #   - "node.platform.os == linux"
   labels:
-    label: "value19"
-    label2: "value"
-    label3: "value3"
+    label: "label"
+    label2: "label2"
   annotations:
-    annotatison2: "valuess298889"
-    annotation3: "value3"
+    annotation: "annotation"
+    annotation2: "annotation2"
   envVars:
-    envVar: "value89"
-    envVar2: "value2"
-    envVar2332: "vaaaaaaa"
+    envVar: "envVar"
+    envVar2: "envVar2"
   secrets:
     - s3accesskey
-    - s3accesskey
-    - s2accesskey
   readOnlyRootFilesystem: true
   limits:
     cpu: "10m"
