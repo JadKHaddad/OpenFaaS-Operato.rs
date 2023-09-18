@@ -245,8 +245,6 @@ async fn uninstall_crd(client: KubeClient) -> AnyResult<()> {
     Ok(())
 }
 
-async fn update_crd(client: KubeClient) -> AnyResult<()> {
-    uninstall_crd(client.clone()).await?;
-    install_crd(client).await?;
-    Ok(())
+async fn update_crd(_client: KubeClient) -> AnyResult<()> {
+    unimplemented!("Update is not implemented yet")
 }

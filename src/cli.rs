@@ -117,7 +117,6 @@ pub enum OperatorDeployCommands {
     #[clap(visible_alias = "un")]
     Uninstall {},
     /// Updates the Kubernetes resources in the cluster
-    /// This is equivalent to uninstalling and then installing the Kubernetes resources
     #[clap(visible_alias = "up")]
     Update {},
 }
@@ -141,7 +140,6 @@ pub enum CrdCommands {
     #[clap(visible_alias = "un")]
     Uninstall {},
     /// Updates the CRDs in the cluster
-    /// This is equivalent to uninstalling and then installing the CRDs
     #[clap(visible_alias = "up")]
     Update {},
     /// Converts the CRDs to Kubernetes resources
