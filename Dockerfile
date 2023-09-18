@@ -14,6 +14,8 @@ RUN --mount=type=cache,target=/home/app/target \
 
 FROM alpine:3.18 as runner
 
+# TODO: test if we need libgcc, for real!
+
 RUN apk update \
     && apk add --no-cache libgcc
 
