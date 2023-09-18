@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result as AnyResult};
 use clap::Parser;
+use either::Either::Left;
 use k8s_openapi::{
     api::{apps::v1::Deployment, core::v1::Service},
     apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition,
@@ -9,7 +10,7 @@ use k8s_openapi::{
 use kube::{
     api::{DeleteParams, PostParams},
     runtime::{conditions, wait::await_condition},
-    Api, Client as KubeClient, CustomResourceExt,
+    Api, Client as KubeClient, CustomResourceExt, ResourceExt,
 };
 use openfaas_functions_operato_rs::{
     cli::{
@@ -228,9 +229,19 @@ async fn install_crd(client: KubeClient) -> AnyResult<()> {
 
 async fn uninstall_crd(client: KubeClient) -> AnyResult<()> {
     let api = Api::<CustomResourceDefinition>::all(client);
-    let _ = api
-        .delete(OpenFaaSFunction::crd_name(), &DeleteParams::default())
-        .await?;
+
+    let obj = api.delete(NAME, &Default::default()).await?;
+    if let Left(o) = obj {
+        match o.uid() {
+            Some(uid) => {
+                await_condition(api, NAME, conditions::is_deleted(&uid)).await?;
+            }
+            None => {
+                tracing::warn!("Could not find crd's uid");
+            }
+        }
+    }
+
     Ok(())
 }
 
