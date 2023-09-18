@@ -13,13 +13,27 @@ use kube::core::ObjectMeta;
 use std::collections::BTreeMap;
 
 pub struct DeploymentBuilder {
-    pub app_name: String,
-    pub namespace: String,
-    pub image: String,
-    pub update_strategy: UpdateStrategy,
+    app_name: String,
+    namespace: String,
+    image: String,
+    update_strategy: UpdateStrategy,
 }
 
 impl DeploymentBuilder {
+    pub fn new(
+        app_name: String,
+        namespace: String,
+        image: String,
+        update_strategy: UpdateStrategy,
+    ) -> Self {
+        Self {
+            app_name,
+            namespace,
+            image,
+            update_strategy,
+        }
+    }
+
     fn to_labels(&self) -> BTreeMap<String, String> {
         [("app".to_string(), self.app_name.clone())].into()
     }
@@ -162,11 +176,11 @@ impl From<&DeploymentBuilder> for Deployment {
                             args: Some(vec![
                                 // TODO: use consts
                                 String::from("operator"),
+                                String::from("controller"),
                                 String::from("--functions-namespace"),
                                 value.namespace.clone(),
                                 String::from("--update-strategy"),
                                 value.update_strategy.to_string(),
-                                String::from("controller"),
                                 String::from("run"),
                             ]),
                             env: Some(vec![EnvVar {

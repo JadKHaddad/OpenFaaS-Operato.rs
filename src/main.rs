@@ -88,12 +88,12 @@ async fn main() -> AnyResult<()> {
                         image_name
                     };
 
-                    let deployment_builder = DeploymentBuilder {
+                    let deployment_builder = DeploymentBuilder::new(
                         app_name,
-                        namespace: functions_namespace.clone(),
+                        functions_namespace.clone(),
                         image,
                         update_strategy,
-                    };
+                    );
 
                     let yaml = deployment_builder.to_yaml_string()?;
 

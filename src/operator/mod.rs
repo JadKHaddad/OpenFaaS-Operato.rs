@@ -5,6 +5,7 @@ use crate::crds::defs::{
     OpenFaaSFunction, OpenFaasFunctionErrorStatus, OpenFaasFunctionOkStatus, OpenFaasFunctionStatus,
 };
 use crate::operator::errors::*;
+use convert_case::{Case, Casing};
 use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::Namespace;
 use k8s_openapi::api::{
@@ -38,10 +39,9 @@ pub enum UpdateStrategy {
 
 impl Display for UpdateStrategy {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            UpdateStrategy::OneWay => write!(f, "OneWay"),
-            UpdateStrategy::Strategic => write!(f, "Strategic"),
-        }
+        let debug_str = format!("{:?}", self);
+        let display_str = debug_str.to_case(Case::Kebab);
+        write!(f, "{}", display_str)
     }
 }
 
