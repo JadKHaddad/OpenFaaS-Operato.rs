@@ -1,5 +1,5 @@
-use super::Operator;
-use crate::consts::{DEFAULT_IMAGE_WITH_TAG, PKG_NAME, PKG_VERSION};
+use super::UpdateStrategy;
+use crate::consts::PKG_NAME;
 use crate::crds::defs::{GROUP, PLURAL};
 use k8s_openapi::{
     api::{
@@ -12,43 +12,64 @@ use k8s_openapi::{
 use kube::core::ObjectMeta;
 use std::collections::BTreeMap;
 
-//TODO: normal function with param for namespace and image
+pub struct DeploymentBuilder {
+    pub app_name: String,
+    pub namespace: String,
+    pub image: String,
+    pub update_strategy: UpdateStrategy,
+}
 
-const NAME: &str = "openfaas-functions-operator";
-
-impl Operator {
+impl DeploymentBuilder {
     fn to_labels(&self) -> BTreeMap<String, String> {
-        [(String::from("app"), NAME.to_string())].into()
+        [("app".to_string(), self.app_name.clone())].into()
+    }
+
+    pub fn to_yaml_string(&self) -> Result<String, serde_yaml::Error> {
+        let mut string = String::new();
+
+        let service_account = ServiceAccount::from(self);
+        let service_account_str = serde_yaml::to_string(&service_account)?;
+
+        let role = Role::from(self);
+        let role_str = serde_yaml::to_string(&role)?;
+
+        let role_binding = RoleBinding::from(self);
+        let role_binding_str = serde_yaml::to_string(&role_binding)?;
+
+        let deployment = Deployment::from(self);
+        let deployment_str = serde_yaml::to_string(&deployment)?;
+
+        string.push_str(&service_account_str);
+        string.push_str("---\n");
+        string.push_str(&role_str);
+        string.push_str("---\n");
+        string.push_str(&role_binding_str);
+        string.push_str("---\n");
+        string.push_str(&deployment_str);
+
+        Ok(string)
     }
 }
 
-impl From<&Operator> for ObjectMeta {
-    fn from(value: &Operator) -> Self {
-        let namespace = value.functions_namespace();
-        ObjectMeta {
-            name: Some(NAME.to_string()),
-            namespace: Some(namespace.into()),
-            ..Default::default()
-        }
-    }
-}
-
-impl From<&Operator> for ServiceAccount {
-    fn from(value: &Operator) -> Self {
+impl From<&DeploymentBuilder> for ServiceAccount {
+    fn from(value: &DeploymentBuilder) -> Self {
         ServiceAccount {
-            metadata: ObjectMeta::from(value),
+            metadata: ObjectMeta {
+                name: Some(value.app_name.clone()),
+                namespace: Some(value.namespace.clone()),
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
 }
 
-impl From<&Operator> for Role {
-    fn from(value: &Operator) -> Self {
-        let namespace = value.functions_namespace();
+impl From<&DeploymentBuilder> for Role {
+    fn from(value: &DeploymentBuilder) -> Self {
         Role {
             metadata: ObjectMeta {
-                name: Some(NAME.to_string()),
-                namespace: Some(namespace.into()),
+                name: Some(format!("{}-role", value.app_name)),
+                namespace: Some(value.namespace.clone()),
                 ..Default::default()
             },
             rules: Some(vec![
@@ -91,29 +112,37 @@ impl From<&Operator> for Role {
     }
 }
 
-impl From<&Operator> for RoleBinding {
-    fn from(value: &Operator) -> Self {
+impl From<&DeploymentBuilder> for RoleBinding {
+    fn from(value: &DeploymentBuilder) -> Self {
         RoleBinding {
-            metadata: ObjectMeta::from(value),
+            metadata: ObjectMeta {
+                name: Some(format!("{}-rolebinding", value.app_name)),
+                namespace: Some(value.namespace.clone()),
+                ..Default::default()
+            },
             subjects: Some(vec![Subject {
                 kind: String::from("ServiceAccount"),
-                name: NAME.to_string(),
-                namespace: Some(value.functions_namespace().into()),
+                name: value.app_name.clone(),
+                namespace: Some(value.namespace.clone()),
                 ..Default::default()
             }]),
             role_ref: RoleRef {
                 kind: String::from("Role"),
-                name: String::from(NAME),
+                name: format!("{}-role", value.app_name),
                 api_group: String::from("rbac.authorization.k8s.io"),
             },
         }
     }
 }
 
-impl From<&Operator> for Deployment {
-    fn from(value: &Operator) -> Self {
+impl From<&DeploymentBuilder> for Deployment {
+    fn from(value: &DeploymentBuilder) -> Self {
         Deployment {
-            metadata: ObjectMeta::from(value),
+            metadata: ObjectMeta {
+                name: Some(value.app_name.clone()),
+                namespace: Some(value.namespace.clone()),
+                ..Default::default()
+            },
             spec: Some(DeploymentSpec {
                 replicas: Some(1),
                 selector: LabelSelector {
@@ -126,14 +155,23 @@ impl From<&Operator> for Deployment {
                         ..Default::default()
                     }),
                     spec: Some(PodSpec {
-                        service_account_name: Some(NAME.to_string()),
+                        service_account_name: Some(value.app_name.clone()),
                         containers: vec![Container {
-                            name: NAME.to_string(),
-                            image: Some(format!("{}:{}", DEFAULT_IMAGE_WITH_TAG, PKG_VERSION)),
-                            args: Some(vec![String::from("run"), String::from("controller")]),
+                            name: value.app_name.clone(),
+                            image: Some(value.image.clone()),
+                            args: Some(vec![
+                                // TODO: use consts
+                                String::from("operator"),
+                                String::from("--functions-namespace"),
+                                value.namespace.clone(),
+                                String::from("--update-strategy"),
+                                value.update_strategy.to_string(),
+                                String::from("controller"),
+                                String::from("run"),
+                            ]),
                             env: Some(vec![EnvVar {
                                 name: String::from("RUST_LOG"),
-                                value: Some(format!("{PKG_NAME}=info")),
+                                value: Some(format!("{PKG_NAME}=info,kube=off")),
                                 ..Default::default()
                             }]),
                             ..Default::default()

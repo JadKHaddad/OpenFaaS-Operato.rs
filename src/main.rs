@@ -17,7 +17,7 @@ use openfaas_functions_operato_rs::{
     },
     consts::DEFAULT_IMAGE,
     crds::defs::OpenFaaSFunction,
-    operator::{Operator, UpdateStrategy},
+    operator::{deplyoment::DeploymentBuilder, Operator, UpdateStrategy},
 };
 use tracing::{trace_span, Instrument};
 use tracing_subscriber::EnvFilter;
@@ -85,12 +85,34 @@ async fn main() -> AnyResult<()> {
                     } else {
                         image_name
                     };
+
+                    let deployment_builder = DeploymentBuilder {
+                        app_name,
+                        namespace: functions_namespace.clone(),
+                        image,
+                        update_strategy,
+                    };
+
+                    let yaml = deployment_builder.to_yaml_string()?;
+
                     match command {
-                        OperatorDeployCommands::Write { file } => {}
-                        OperatorDeployCommands::Print {} => {}
-                        OperatorDeployCommands::Install {} => {}
-                        OperatorDeployCommands::Uninstall {} => {}
-                        OperatorDeployCommands::Update {} => {}
+                        OperatorDeployCommands::Write { file } => {
+                            tokio::fs::write(file, yaml)
+                                .await
+                                .context("Failed to write resources to file")?;
+                        }
+                        OperatorDeployCommands::Print {} => {
+                            println!("{}", yaml);
+                        }
+                        OperatorDeployCommands::Install {} => {
+                            unimplemented!("Installis not implemented yet");
+                        }
+                        OperatorDeployCommands::Uninstall {} => {
+                            unimplemented!("Uninstall is not implemented yet");
+                        }
+                        OperatorDeployCommands::Update {} => {
+                            unimplemented!("Update is not implemented yet");
+                        }
                     }
                 }
             },

@@ -1,4 +1,4 @@
-mod deplyoment;
+pub mod deplyoment;
 mod errors;
 
 use crate::crds::defs::{
