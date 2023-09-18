@@ -8,6 +8,7 @@ use k8s_openapi::{
 };
 use kube::{
     api::{DeleteParams, PostParams},
+    runtime::{conditions, wait::await_condition},
     Api, Client as KubeClient, CustomResourceExt,
 };
 use openfaas_functions_operato_rs::{
@@ -16,7 +17,7 @@ use openfaas_functions_operato_rs::{
         OperatorSubCommands,
     },
     consts::DEFAULT_IMAGE,
-    crds::defs::OpenFaaSFunction,
+    crds::defs::{OpenFaaSFunction, NAME},
     operator::{deplyoment::DeploymentBuilder, Operator, UpdateStrategy},
 };
 use tracing::{trace_span, Instrument};
@@ -219,6 +220,9 @@ async fn install_crd(client: KubeClient) -> AnyResult<()> {
     let _ = api
         .create(&PostParams::default(), &OpenFaaSFunction::crd())
         .await?;
+
+    await_condition(api, NAME, conditions::is_crd_established()).await?;
+
     Ok(())
 }
 

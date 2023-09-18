@@ -12,6 +12,7 @@ pub const GROUP: &str = "operato.rs";
 pub const VERSION: &str = "v1alpha1";
 pub const KIND: &str = "OpenFaaSFunction";
 pub const PLURAL: &str = "openfaasfunctions";
+pub const NAME: &str = "openfaasfunctions.operato.rs";
 pub const FINALIZER_NAME: &str = "openfaasfunctions.operato.rs/finalizer";
 pub const LAST_APPLIED_ANNOTATION: &str = "openfaasfunctions.operato.rs/last-applied-spec";
 
