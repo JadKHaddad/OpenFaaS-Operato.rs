@@ -35,7 +35,27 @@ impl DeploymentBuilder {
     }
 
     fn to_labels(&self) -> BTreeMap<String, String> {
-        [("app".to_string(), self.app_name.clone())].into()
+        [("app".to_string(), self.to_app_name())].into()
+    }
+
+    pub fn to_deployment_name(&self) -> String {
+        self.app_name.clone()
+    }
+
+    pub fn to_app_name(&self) -> String {
+        self.app_name.clone()
+    }
+
+    pub fn to_service_account_name(&self) -> String {
+        self.app_name.clone()
+    }
+
+    pub fn to_role_name(&self) -> String {
+        format!("{}-role", self.app_name)
+    }
+
+    pub fn to_role_binding_name(&self) -> String {
+        format!("{}-rolebinding", self.app_name)
     }
 
     pub fn to_yaml_string(&self) -> Result<String, serde_yaml::Error> {
@@ -69,7 +89,7 @@ impl From<&DeploymentBuilder> for ServiceAccount {
     fn from(value: &DeploymentBuilder) -> Self {
         ServiceAccount {
             metadata: ObjectMeta {
-                name: Some(value.app_name.clone()),
+                name: Some(value.to_service_account_name()),
                 namespace: Some(value.namespace.clone()),
                 ..Default::default()
             },
@@ -82,7 +102,7 @@ impl From<&DeploymentBuilder> for Role {
     fn from(value: &DeploymentBuilder) -> Self {
         Role {
             metadata: ObjectMeta {
-                name: Some(format!("{}-role", value.app_name)),
+                name: Some(value.to_role_name()),
                 namespace: Some(value.namespace.clone()),
                 ..Default::default()
             },
@@ -130,19 +150,19 @@ impl From<&DeploymentBuilder> for RoleBinding {
     fn from(value: &DeploymentBuilder) -> Self {
         RoleBinding {
             metadata: ObjectMeta {
-                name: Some(format!("{}-rolebinding", value.app_name)),
+                name: Some(value.to_role_binding_name()),
                 namespace: Some(value.namespace.clone()),
                 ..Default::default()
             },
             subjects: Some(vec![Subject {
                 kind: String::from("ServiceAccount"),
-                name: value.app_name.clone(),
+                name: value.to_service_account_name(),
                 namespace: Some(value.namespace.clone()),
                 ..Default::default()
             }]),
             role_ref: RoleRef {
                 kind: String::from("Role"),
-                name: format!("{}-role", value.app_name),
+                name: value.to_role_name(),
                 api_group: String::from("rbac.authorization.k8s.io"),
             },
         }
@@ -153,7 +173,7 @@ impl From<&DeploymentBuilder> for Deployment {
     fn from(value: &DeploymentBuilder) -> Self {
         Deployment {
             metadata: ObjectMeta {
-                name: Some(value.app_name.clone()),
+                name: Some(value.to_deployment_name()),
                 namespace: Some(value.namespace.clone()),
                 ..Default::default()
             },
@@ -169,9 +189,9 @@ impl From<&DeploymentBuilder> for Deployment {
                         ..Default::default()
                     }),
                     spec: Some(PodSpec {
-                        service_account_name: Some(value.app_name.clone()),
+                        service_account_name: Some(value.to_service_account_name()),
                         containers: vec![Container {
-                            name: value.app_name.clone(),
+                            name: value.to_app_name(),
                             image: Some(value.image.clone()),
                             args: Some(vec![
                                 // TODO: use consts

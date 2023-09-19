@@ -4,7 +4,11 @@ use anyhow::{Context, Result as AnyResult};
 use clap::Parser;
 use either::Either::Left;
 use k8s_openapi::{
-    api::{apps::v1::Deployment, core::v1::Service},
+    api::{
+        apps::v1::Deployment,
+        core::v1::{Service, ServiceAccount},
+        rbac::v1::{Role, RoleBinding},
+    },
     apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition,
 };
 use kube::{
@@ -59,6 +63,8 @@ async fn create_and_run_operator(
 async fn main() -> AnyResult<()> {
     let cli = Cli::parse();
 
+    init_tracing();
+
     match cli.command {
         Commands::Operator { command } => match *command {
             OperatorCommands::Controller {
@@ -67,7 +73,6 @@ async fn main() -> AnyResult<()> {
                 command,
             } => match command {
                 OperatorSubCommands::Run {} => {
-                    init_tracing();
                     let client = KubeClient::try_default().await?;
 
                     tracing::info!(%functions_namespace, %update_strategy, "Running with current config.");
@@ -107,10 +112,103 @@ async fn main() -> AnyResult<()> {
                             println!("{}", yaml);
                         }
                         OperatorDeployCommands::Install {} => {
-                            unimplemented!("Installis not implemented yet");
+                            let client = KubeClient::try_default().await?;
+
+                            let service_account_api = Api::<ServiceAccount>::namespaced(
+                                client.clone(),
+                                &functions_namespace,
+                            );
+                            let service_account = ServiceAccount::from(&deployment_builder);
+
+                            let role_api =
+                                Api::<Role>::namespaced(client.clone(), &functions_namespace);
+                            let role = Role::from(&deployment_builder);
+
+                            let role_binding_api = Api::<RoleBinding>::namespaced(
+                                client.clone(),
+                                &functions_namespace,
+                            );
+                            let role_binding = RoleBinding::from(&deployment_builder);
+
+                            let deployment_api =
+                                Api::<Deployment>::namespaced(client, &functions_namespace);
+                            let deployment = Deployment::from(&deployment_builder);
+
+                            if let Err(error) = service_account_api
+                                .create(&PostParams::default(), &service_account)
+                                .await
+                            {
+                                tracing::error!(%error, "Failed to create service account");
+                            }
+
+                            if let Err(error) = role_api.create(&PostParams::default(), &role).await
+                            {
+                                tracing::error!(%error, "Failed to create role");
+                            }
+
+                            if let Err(error) = role_binding_api
+                                .create(&PostParams::default(), &role_binding)
+                                .await
+                            {
+                                tracing::error!(%error, "Failed to create role binding");
+                            }
+
+                            if let Err(error) = deployment_api
+                                .create(&PostParams::default(), &deployment)
+                                .await
+                            {
+                                tracing::error!(%error, "Failed to create deployment");
+                            }
                         }
                         OperatorDeployCommands::Uninstall {} => {
-                            unimplemented!("Uninstall is not implemented yet");
+                            let client = KubeClient::try_default().await?;
+
+                            let service_account_api = Api::<ServiceAccount>::namespaced(
+                                client.clone(),
+                                &functions_namespace,
+                            );
+                            let service_account_name = deployment_builder.to_service_account_name();
+
+                            let role_api =
+                                Api::<Role>::namespaced(client.clone(), &functions_namespace);
+                            let role_name = deployment_builder.to_role_name();
+
+                            let role_binding_api = Api::<RoleBinding>::namespaced(
+                                client.clone(),
+                                &functions_namespace,
+                            );
+                            let role_binding_name = deployment_builder.to_role_binding_name();
+
+                            let deployment_api =
+                                Api::<Deployment>::namespaced(client, &functions_namespace);
+                            let deployment_name = deployment_builder.to_deployment_name();
+
+                            if let Err(error) = service_account_api
+                                .delete(&service_account_name, &DeleteParams::default())
+                                .await
+                            {
+                                tracing::error!(%error, "Failed to delete service account");
+                            }
+
+                            if let Err(error) =
+                                role_api.delete(&role_name, &DeleteParams::default()).await
+                            {
+                                tracing::error!(%error, "Failed to delete role");
+                            }
+
+                            if let Err(error) = role_binding_api
+                                .delete(&role_binding_name, &DeleteParams::default())
+                                .await
+                            {
+                                tracing::error!(%error, "Failed to delete role binding");
+                            }
+
+                            if let Err(error) = deployment_api
+                                .delete(&deployment_name, &DeleteParams::default())
+                                .await
+                            {
+                                tracing::error!(%error, "Failed to delete deployment");
+                            }
                         }
                         OperatorDeployCommands::Update {} => {
                             unimplemented!("Update is not implemented yet");
@@ -163,11 +261,18 @@ async fn main() -> AnyResult<()> {
                         let deployment = Deployment::try_from(&crd.spec)?;
                         let service = Service::try_from(&crd.spec)?;
 
-                        deployment_api
+                        if let Err(error) = deployment_api
                             .create(&PostParams::default(), &deployment)
-                            .await?;
+                            .await
+                        {
+                            tracing::error!(%error, "Failed to create deployment");
+                        }
 
-                        service_api.create(&PostParams::default(), &service).await?;
+                        if let Err(error) =
+                            service_api.create(&PostParams::default(), &service).await
+                        {
+                            tracing::error!(%error, "Failed to create service");
+                        }
                     }
                     CrdConvertCommands::Delete {} => {
                         let client = KubeClient::try_default().await?;
@@ -177,11 +282,17 @@ async fn main() -> AnyResult<()> {
 
                         let name = crd.spec.to_name();
 
-                        deployment_api
-                            .delete(&name, &DeleteParams::default())
-                            .await?;
+                        if let Err(error) =
+                            deployment_api.delete(&name, &DeleteParams::default()).await
+                        {
+                            tracing::error!(%error, "Failed to delete deployment");
+                        }
 
-                        service_api.delete(&name, &DeleteParams::default()).await?;
+                        if let Err(error) =
+                            service_api.delete(&name, &DeleteParams::default()).await
+                        {
+                            tracing::error!(%error, "Failed to delete service");
+                        }
                     }
                 }
             }
