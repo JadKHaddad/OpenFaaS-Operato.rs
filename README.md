@@ -14,6 +14,12 @@ openfaas_functions_operato_rs operator controller deploy install
 kubectl apply -f example-function.yaml
 ```
 
+## Run locally
+* Run the Operator in controller mode
+```bash
+openfaas_functions_operato_rs operator controller run
+```
+
 ## Uninstall
 * Uninstall the CRD
 ```bash
