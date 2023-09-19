@@ -1,6 +1,7 @@
 [package]
 name = "openfaas_functions_operato_rs"
 authors = ["Jad K. Haddad <JadKHaddad@gmail.com>"]
+license = "CC0-1.0"
 version = "0.1.0"
 description = "OpenFaaS Functions Operator written in Rust"
 edition = "2021"
