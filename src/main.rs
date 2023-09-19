@@ -19,7 +19,7 @@ use openfaas_functions_operato_rs::{
     },
     consts::DEFAULT_IMAGE,
     crds::defs::{OpenFaaSFunction, NAME},
-    operator::{deplyoment::DeploymentBuilder, Operator, UpdateStrategy},
+    operator::controller::{deplyoment::DeploymentBuilder, Operator, UpdateStrategy},
 };
 use tracing::{trace_span, Instrument};
 use tracing_subscriber::EnvFilter;

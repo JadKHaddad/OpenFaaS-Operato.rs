@@ -5,7 +5,7 @@ use crate::{
         DEFAULT_IMAGE_WITH_TAG, FUNCTIONS_DEFAULT_NAMESPACE, FUNCTIONS_NAMESPACE_ENV_VAR,
         GATEWAY_DEFAULT_URL, GATEWAY_URL_ENV_VAR, OPFOC_UPDATE_STRATEGY_ENV_VAR,
     },
-    operator::UpdateStrategy,
+    operator::controller::UpdateStrategy,
 };
 use clap::{Parser, Subcommand};
 use url::Url;
