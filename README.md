@@ -42,3 +42,13 @@ openfaas_functions_operato_rs --help
 
 ## Notes
 * The Function CRD is based on the ```OpenFaaS Function CRD``` with optional fields
+
+## Rust version 
+1.70.0
+
+## Contributors
+* Jad K. Haddad <jadkhaddad@gmail.com>
+
+## License & copyright
+© 2023 Jad K. Haddad
+Licensed under the [Creative Commons Legal Code License](LICENSE)
