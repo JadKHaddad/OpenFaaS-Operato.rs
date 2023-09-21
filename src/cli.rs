@@ -13,11 +13,33 @@ use url::Url;
 
 const VERSION: &str = formatcp!("{0}, crd {1}", PKG_VERSION, CRD_VERSION);
 
+#[cfg(test)]
+const NO_BINARY_NAME: bool = true;
+#[cfg(not(test))]
+const NO_BINARY_NAME: bool = false;
+
 #[derive(Parser, Debug)]
-#[command(author, version=VERSION, about, long_about = None)]
+#[command(author, version=VERSION, about, long_about = None, no_binary_name(NO_BINARY_NAME))]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
+}
+
+impl Cli {
+    pub fn operator_controller_run_args(
+        namesapce: String,
+        update_strategy: UpdateStrategy,
+    ) -> Vec<String> {
+        vec![
+            String::from("operator"),
+            String::from("controller"),
+            String::from("--functions-namespace"),
+            namesapce,
+            String::from("--update-strategy"),
+            update_strategy.to_string(),
+            String::from("run"),
+        ]
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -206,3 +228,34 @@ pub enum CrdConvertCommands {
 }
 
 // https://docs.rs/clap/latest/clap/_derive/index.html#arg-attributes
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn operator_controller_run_args_are_valid() {
+        let namespace_arg = String::from("functions");
+        let update_strategy_arg = UpdateStrategy::OneWay;
+
+        let args =
+            Cli::operator_controller_run_args(namespace_arg.clone(), update_strategy_arg.clone());
+
+        let cli = Cli::parse_from(args);
+
+        if let Commands::Operator { command } = cli.command {
+            if let OperatorCommands::Controller {
+                functions_namespace,
+                update_strategy,
+                command: OperatorSubCommands::Run {},
+            } = *command
+            {
+                assert_eq!(functions_namespace, namespace_arg);
+                assert_eq!(update_strategy, update_strategy_arg);
+                return;
+            }
+        }
+
+        panic!("Operator controller run args are invalid");
+    }
+}

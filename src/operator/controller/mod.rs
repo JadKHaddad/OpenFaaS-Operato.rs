@@ -26,7 +26,7 @@ use tokio::time::Duration;
 use tracing::{trace_span, Instrument};
 
 /// The OpenFaaS functions operator update strategy
-#[derive(Debug, Clone, clap::ValueEnum, Default)]
+#[derive(Debug, Clone, clap::ValueEnum, Default, PartialEq)]
 pub enum UpdateStrategy {
     ///  Resources are updated only when changes occur in the Custom Resource Definition (CRD)
     #[default]
