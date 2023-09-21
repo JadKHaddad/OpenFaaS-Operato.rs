@@ -16,4 +16,4 @@ const DEFAULT_IMAGE_REPO: &str = "docker.io/jadkhaddad";
 pub const DEFAULT_IMAGE: &str = concatcp!(DEFAULT_IMAGE_REPO, "/", PKG_NAME);
 
 pub const DEFAULT_IMAGE_WITH_TAG: &str =
-    concatcp!(DEFAULT_IMAGE_REPO, "/", PKG_NAME, ":", PKG_NAME);
+    concatcp!(DEFAULT_IMAGE_REPO, "/", PKG_NAME, ":", PKG_VERSION);

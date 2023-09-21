@@ -34,6 +34,33 @@ pub enum Commands {
         #[command(subcommand)]
         command: CrdCommands,
     },
+    /// Docker command
+    ///
+    /// Builds and pushes the Docker image for the OpenFaaS functions operator
+    Docker {
+        /// The name of the image
+        #[clap(short = 'i', long, default_value = DEFAULT_IMAGE_WITH_TAG)]
+        image_name: String,
+        /// Context path for the Docker build
+        #[clap(short = 'c', long, default_value = ".")]
+        context: PathBuf,
+        /// The name of the Dockerfile to use
+        #[clap(short = 'f', long, default_value = "Dockerfile")]
+        dockerfile: PathBuf,
+
+        #[command(subcommand)]
+        command: DockerCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum DockerCommands {
+    /// Builds the Docker image
+    Build {},
+    /// Pushes the Docker image
+    Push {},
+    /// Builds and pushes the Docker image
+    Up {},
 }
 
 #[derive(Subcommand, Debug)]

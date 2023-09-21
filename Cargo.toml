@@ -2,7 +2,7 @@
 name = "openfaas_functions_operato_rs"
 authors = ["Jad K. Haddad <JadKHaddad@gmail.com>"]
 license = "CC0-1.0"
-version = "0.1.0"
+version = "0.2.0"
 description = "OpenFaaS Functions OperatoRS"
 edition = "2021"
 rust-version = "1.70.0"
@@ -16,7 +16,12 @@ opt-level = "z"
 strip = "symbols"
 
 [dependencies]
-tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "fs"] }
+tokio = { version = "1.32.0", features = [
+    "macros",
+    "rt-multi-thread",
+    "fs",
+    "process",
+] }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter", "time"] }
 tracing = "0.1.37"
 thiserror = "1.0.43"

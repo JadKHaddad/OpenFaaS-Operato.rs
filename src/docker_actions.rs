@@ -1,0 +1,46 @@
+use anyhow::{Context, Ok, Result as AnyResult};
+use std::path::PathBuf;
+use tokio::process::Command;
+
+pub async fn build(context: PathBuf, dockerfile: PathBuf, image_name: String) -> AnyResult<()> {
+    Command::new("docker")
+        .env("DOCKER_BUILDKIT", "1")
+        .arg("build")
+        .arg("-t")
+        .arg(image_name.clone())
+        .arg("-f")
+        .arg(dockerfile)
+        .arg(context)
+        .arg("--progress=plain")
+        .spawn()
+        .context("Build failed")?
+        .wait()
+        .await
+        .context("Build failed")?;
+
+    Ok(())
+}
+
+pub async fn push(image_name: String) -> AnyResult<()> {
+    Command::new("docker")
+        .arg("push")
+        .arg(image_name)
+        .spawn()
+        .context("Push failed")?
+        .wait()
+        .await
+        .context("Push failed")?;
+
+    Ok(())
+}
+
+pub async fn build_and_push(
+    context: PathBuf,
+    dockerfile: PathBuf,
+    image_name: String,
+) -> AnyResult<()> {
+    build(context, dockerfile, image_name.clone()).await?;
+    push(image_name).await?;
+
+    Ok(())
+}
