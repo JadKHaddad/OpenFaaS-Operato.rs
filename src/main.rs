@@ -44,6 +44,8 @@ async fn main() -> AnyResult<()> {
                 command,
             } => match command {
                 OperatorSubCommands::Run {} => {
+                    print_disply_name();
+
                     create_and_run_operator_controller(functions_namespace, update_strategy)
                         .instrument(trace_span!("Operator"))
                         .await?;
