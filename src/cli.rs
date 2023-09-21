@@ -1,17 +1,20 @@
-use std::path::PathBuf;
-
 use crate::{
     consts::{
         DEFAULT_IMAGE_WITH_TAG, FUNCTIONS_DEFAULT_NAMESPACE, FUNCTIONS_NAMESPACE_ENV_VAR,
-        GATEWAY_DEFAULT_URL, GATEWAY_URL_ENV_VAR, OPFOC_UPDATE_STRATEGY_ENV_VAR,
+        GATEWAY_DEFAULT_URL, GATEWAY_URL_ENV_VAR, OPFOC_UPDATE_STRATEGY_ENV_VAR, PKG_VERSION,
     },
+    crds::defs::VERSION as CRD_VERSION,
     operator::controller::UpdateStrategy,
 };
 use clap::{Parser, Subcommand};
+use const_format::formatcp;
+use std::path::PathBuf;
 use url::Url;
 
+const VERSION: &str = formatcp!("{0}, crd {1}", PKG_VERSION, CRD_VERSION);
+
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version=VERSION, about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,

@@ -9,9 +9,10 @@ openfaas_functions_operato_rs crd install
 ```bash
 openfaas_functions_operato_rs operator controller deploy install
 ```
-* Now you can create a Function
+* Now you can create a Function and wait for it to be ready
 ```bash
 kubectl apply -f example-function.yaml
+kubectl wait --for=condition=ready openfaasfunctions -n openfaas-fn nodeinfo
 ```
 
 ## Run locally

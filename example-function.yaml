@@ -26,5 +26,5 @@ spec:
     cpu: "10m"
     memory: "30Mi"
 # kubectl apply -f example-function.yaml
-# kubectl wait --for=condition=Ready openfaasfunctions -n openfaas-fn nodeinfo
+# kubectl wait --for=condition=ready openfaasfunctions -n openfaas-fn nodeinfo
 # kubectl describe openfaasfunctions -n openfaas-fn nodeinfo
