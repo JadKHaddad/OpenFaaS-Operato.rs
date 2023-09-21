@@ -1,9 +1,11 @@
 use crate::{
-    consts::DEFAULT_IMAGE,
+    consts::{DEFAULT_IMAGE, DISPLAY_NAME},
     crds::defs::{OpenFaaSFunction, NAME},
     operator::controller::{deplyoment::DeploymentBuilder, Operator, UpdateStrategy},
 };
 use anyhow::{Context, Ok, Result as AnyResult};
+use cfonts::{say, Colors, Fonts, Options};
+use convert_case::{Case, Casing};
 use either::Either::Left;
 use k8s_openapi::{
     api::{
@@ -20,6 +22,15 @@ use kube::{
 };
 use std::path::PathBuf;
 use tracing::{trace_span, Instrument};
+
+pub fn print_disply_name() {
+    say(Options {
+        text: DISPLAY_NAME.to_case(Case::Kebab),
+        font: Fonts::Font3d,
+        colors: vec![Colors::Red, Colors::Gray],
+        ..Options::default()
+    });
+}
 
 pub async fn create_and_run_operator_controller(
     functions_namespace: String,

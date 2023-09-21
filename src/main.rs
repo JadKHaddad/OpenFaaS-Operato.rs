@@ -1,11 +1,14 @@
 use anyhow::{Context, Ok, Result as AnyResult};
 use clap::Parser;
+use openfaas_functions_operato_rs::cli::DockerCommands;
+use openfaas_functions_operato_rs::docker_actions::*;
 use openfaas_functions_operato_rs::main_actions::*;
 use openfaas_functions_operato_rs::{
     cli::{
         Cli, Commands, CrdCommands, CrdConvertCommands, OperatorCommands, OperatorDeployCommands,
         OperatorSubCommands,
     },
+    consts::PKG_NAME,
     operator::controller::deplyoment::DeploymentBuilder,
 };
 use tracing::{trace_span, Instrument};
@@ -13,7 +16,7 @@ use tracing_subscriber::EnvFilter;
 
 fn init_tracing() {
     if std::env::var_os("RUST_LOG").is_none() {
-        std::env::set_var("RUST_LOG", "openfaas_functions_operato_rs=info");
+        std::env::set_var("RUST_LOG", format!("{PKG_NAME}=info,kube=off"));
     }
 
     tracing_subscriber::fmt()
@@ -41,6 +44,8 @@ async fn main() -> AnyResult<()> {
                 command,
             } => match command {
                 OperatorSubCommands::Run {} => {
+                    print_disply_name();
+
                     create_and_run_operator_controller(functions_namespace, update_strategy)
                         .instrument(trace_span!("Operator"))
                         .await?;
@@ -112,6 +117,16 @@ async fn main() -> AnyResult<()> {
                     CrdConvertCommands::Delete {} => delete_crd_resources(crd).await?,
                 }
             }
+        },
+        Commands::Docker {
+            context,
+            dockerfile,
+            image_name,
+            command,
+        } => match command {
+            DockerCommands::Build {} => build(context, dockerfile, image_name).await?,
+            DockerCommands::Push {} => push(image_name).await?,
+            DockerCommands::Up {} => build_and_push(context, dockerfile, image_name).await?,
         },
     }
 

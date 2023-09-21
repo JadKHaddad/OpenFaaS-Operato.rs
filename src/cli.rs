@@ -1,20 +1,45 @@
-use std::path::PathBuf;
-
 use crate::{
     consts::{
         DEFAULT_IMAGE_WITH_TAG, FUNCTIONS_DEFAULT_NAMESPACE, FUNCTIONS_NAMESPACE_ENV_VAR,
-        GATEWAY_DEFAULT_URL, GATEWAY_URL_ENV_VAR, OPFOC_UPDATE_STRATEGY_ENV_VAR,
+        GATEWAY_DEFAULT_URL, GATEWAY_URL_ENV_VAR, OPFOC_UPDATE_STRATEGY_ENV_VAR, PKG_VERSION,
     },
+    crds::defs::VERSION as CRD_VERSION,
     operator::controller::UpdateStrategy,
 };
 use clap::{Parser, Subcommand};
+use const_format::formatcp;
+use std::path::PathBuf;
 use url::Url;
 
+const VERSION: &str = formatcp!("{0}, crd {1}", PKG_VERSION, CRD_VERSION);
+
+#[cfg(test)]
+const NO_BINARY_NAME: bool = true;
+#[cfg(not(test))]
+const NO_BINARY_NAME: bool = false;
+
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version=VERSION, about, long_about = None, no_binary_name(NO_BINARY_NAME))]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
+}
+
+impl Cli {
+    pub fn operator_controller_run_args(
+        namesapce: String,
+        update_strategy: UpdateStrategy,
+    ) -> Vec<String> {
+        vec![
+            String::from("operator"),
+            String::from("controller"),
+            String::from("--functions-namespace"),
+            namesapce,
+            String::from("--update-strategy"),
+            update_strategy.to_string(),
+            String::from("run"),
+        ]
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -31,6 +56,33 @@ pub enum Commands {
         #[command(subcommand)]
         command: CrdCommands,
     },
+    /// Docker command
+    ///
+    /// Builds and pushes the Docker image for the OpenFaaS functions operator
+    Docker {
+        /// The name of the image
+        #[clap(short = 'i', long, default_value = DEFAULT_IMAGE_WITH_TAG)]
+        image_name: String,
+        /// Context path for the Docker build
+        #[clap(short = 'c', long, default_value = ".")]
+        context: PathBuf,
+        /// The name of the Dockerfile to use
+        #[clap(short = 'f', long, default_value = "Dockerfile")]
+        dockerfile: PathBuf,
+
+        #[command(subcommand)]
+        command: DockerCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum DockerCommands {
+    /// Builds the Docker image
+    Build {},
+    /// Pushes the Docker image
+    Push {},
+    /// Builds and pushes the Docker image
+    Up {},
 }
 
 #[derive(Subcommand, Debug)]
@@ -176,3 +228,34 @@ pub enum CrdConvertCommands {
 }
 
 // https://docs.rs/clap/latest/clap/_derive/index.html#arg-attributes
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn operator_controller_run_args_are_valid() {
+        let namespace_arg = String::from("functions");
+        let update_strategy_arg = UpdateStrategy::OneWay;
+
+        let args =
+            Cli::operator_controller_run_args(namespace_arg.clone(), update_strategy_arg.clone());
+
+        let cli = Cli::parse_from(args);
+
+        if let Commands::Operator { command } = cli.command {
+            if let OperatorCommands::Controller {
+                functions_namespace,
+                update_strategy,
+                command: OperatorSubCommands::Run {},
+            } = *command
+            {
+                assert_eq!(functions_namespace, namespace_arg);
+                assert_eq!(update_strategy, update_strategy_arg);
+                return;
+            }
+        }
+
+        panic!("Operator controller run args are invalid");
+    }
+}

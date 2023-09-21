@@ -31,7 +31,8 @@ RUN mkdir -p /home/app/.kube
 
 ENTRYPOINT ["openfaas_functions_operato_rs"]
 
-# DOCKER_BUILDKIT=1 docker build -t jadkhaddad/openfaas_functions_operato_rs:0.1.0 . --progress=plain
-# docker push jadkhaddad/openfaas_functions_operato_rs:0.1.0
+# use openfaas_functions_operato_rs docker command to build and push the current version
+# DOCKER_BUILDKIT=1 docker build -t jadkhaddad/openfaas_functions_operato_rs:latest . --progress=plain
+# docker push jadkhaddad/openfaas_functions_operato_rs:latest
 # docker run --rm -it -v ${USERPROFILE}/.kube:/home/app/.kube openfaas_operato_rs:latest run operator -n openfaas-fn controller
 # docker run --rm -it -v ~/.kube:/home/app/.kube openfaas_operato_rs:latest run operator -n openfaas-fn controller

@@ -9,9 +9,10 @@ openfaas_functions_operato_rs crd install
 ```bash
 openfaas_functions_operato_rs operator controller deploy install
 ```
-* Now you can create a Function
+* Now you can create a Function and wait for it to be ready
 ```bash
-kubectl apply -f example-function.yaml
+kubectl apply -f nodeinfo.yaml
+kubectl wait --for=condition=ready openfaasfunctions -n openfaas-fn nodeinfo
 ```
 
 ## Run locally
@@ -31,7 +32,7 @@ openfaas_functions_operato_rs operator controller deploy uninstall
 ```
 * Delete a Function
 ```bash
-kubectl delete -f example-function.yaml
+kubectl delete -f nodeinfo.yaml
 ```
 
 ## Help
@@ -41,3 +42,13 @@ openfaas_functions_operato_rs --help
 
 ## Notes
 * The Function CRD is based on the ```OpenFaaS Function CRD``` with optional fields
+
+## Rust version 
+1.70.0
+
+## Contributors
+* Jad K. Haddad <jadkhaddad@gmail.com>
+
+## License & copyright
+© 2023 Jad K. Haddad
+Licensed under the [Creative Commons Legal Code License](LICENSE)

@@ -1,4 +1,5 @@
 use super::UpdateStrategy;
+use crate::cli::Cli;
 use crate::consts::PKG_NAME;
 use crate::crds::defs::{GROUP, PLURAL};
 use k8s_openapi::{
@@ -193,16 +194,10 @@ impl From<&DeploymentBuilder> for Deployment {
                         containers: vec![Container {
                             name: value.to_app_name(),
                             image: Some(value.image.clone()),
-                            args: Some(vec![
-                                // TODO: use consts
-                                String::from("operator"),
-                                String::from("controller"),
-                                String::from("--functions-namespace"),
+                            args: Some(Cli::operator_controller_run_args(
                                 value.namespace.clone(),
-                                String::from("--update-strategy"),
-                                value.update_strategy.to_string(),
-                                String::from("run"),
-                            ]),
+                                value.update_strategy.clone(),
+                            )),
                             env: Some(vec![EnvVar {
                                 name: String::from("RUST_LOG"),
                                 value: Some(format!("{PKG_NAME}=info,kube=off")),

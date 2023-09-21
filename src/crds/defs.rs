@@ -1,4 +1,4 @@
-use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+use k8s_openapi::apimachinery::pkg::{api::resource::Quantity, apis::meta::v1::Time};
 use kube::CustomResource;
 use kube_quantity::ParseQuantityError;
 use schemars::JsonSchema;
@@ -88,33 +88,47 @@ pub struct FunctionResourcesQuantity {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
-pub enum OpenFaasFunctionStatus {
-    Ok(OpenFaasFunctionOkStatus),
-    Err(OpenFaasFunctionErrorStatus),
+pub struct OpenFaasFunctionStatus {
+    pub conditions: Vec<OpenFaasFunctionStatusCondition>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
-pub enum OpenFaasFunctionOkStatus {
+pub struct OpenFaasFunctionStatusCondition {
+    #[serde(rename = "type")]
+    pub type_: OpenFaasFunctionStatusConditionType,
+    #[serde(flatten)]
+    pub status: OpenFaasFunctionStatusConditionStatus,
+    #[serde(flatten)]
+    pub message: OpenFaasFunctionStatusConditionMessage,
+    pub reason: OpenFaasFunctionPossibleStatus,
+    pub last_update_time: Option<Time>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
+pub struct OpenFaasFunctionStatusConditionMessage {
+    pub message: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
+pub struct OpenFaasFunctionStatusConditionStatus {
+    pub status: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
+pub enum OpenFaasFunctionStatusConditionType {
     Ready,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema, ThisError)]
-pub enum OpenFaasFunctionErrorStatus {
-    #[error("The CRD's namespace does not match the functions namespace")]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, JsonSchema)]
+pub enum OpenFaasFunctionPossibleStatus {
+    Ok,
     InvalidCRDNamespace,
-    #[error("The function's namespace does not match the functions namespace")]
     InvalidFunctionNamespace,
-    #[error("A function's cpu quantity is invalid")]
     CPUQuantity,
-    #[error("A function's memory quantity is invalid")]
     MemoryQuantity,
-    #[error("The function's deployment already deployed by third party")]
     DeploymentAlreadyExists,
-    #[error("The function's deployment is not ready")]
     DeploymentNotReady,
-    #[error("The function's service already deployed by third party")]
     ServiceAlreadyExists,
-    #[error("The given secrets to mount do not exist")]
     SecretsNotFound,
 }
 

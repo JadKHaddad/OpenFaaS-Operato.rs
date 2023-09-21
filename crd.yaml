@@ -104,27 +104,44 @@ spec:
             type: object
           status:
             nullable: true
-            oneOf:
-            - required:
-              - Ok
-            - required:
-              - Err
             properties:
-              Err:
-                enum:
-                - InvalidCRDNamespace
-                - InvalidFunctionNamespace
-                - CPUQuantity
-                - MemoryQuantity
-                - DeploymentAlreadyExists
-                - DeploymentNotReady
-                - ServiceAlreadyExists
-                - SecretsNotFound
-                type: string
-              Ok:
-                enum:
-                - Ready
-                type: string
+              conditions:
+                items:
+                  properties:
+                    last_update_time:
+                      description: Time is a wrapper around time.Time which supports correct marshaling to YAML and JSON.  Wrappers are provided for many of the factory methods that the time package offers.
+                      format: date-time
+                      nullable: true
+                      type: string
+                    message:
+                      nullable: true
+                      type: string
+                    reason:
+                      enum:
+                      - Ok
+                      - InvalidCRDNamespace
+                      - InvalidFunctionNamespace
+                      - CPUQuantity
+                      - MemoryQuantity
+                      - DeploymentAlreadyExists
+                      - DeploymentNotReady
+                      - ServiceAlreadyExists
+                      - SecretsNotFound
+                      type: string
+                    status:
+                      type: string
+                    type:
+                      enum:
+                      - Ready
+                      type: string
+                  required:
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+            required:
+            - conditions
             type: object
         required:
         - spec

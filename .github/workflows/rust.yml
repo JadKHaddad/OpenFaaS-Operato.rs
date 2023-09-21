@@ -2,9 +2,9 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,13 +16,16 @@ jobs:
       matrix:
         toolchain:
           - stable
-            
+
     steps:
-    - uses: actions/checkout@v3
-    - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-    
-    - name: Lint
-      run: cargo clippy --verbose
-      
-    - name: Build
-      run: cargo build --verbose
+      - uses: actions/checkout@v3
+      - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+
+      - name: Lint
+        run: cargo clippy
+
+      - name: Build
+        run: cargo build
+
+      - name: Test
+        run: cargo test
