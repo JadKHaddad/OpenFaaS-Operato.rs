@@ -10,7 +10,7 @@ COPY Cargo.toml /home/app/Cargo.toml
 COPY Cargo.lock /home/app/Cargo.lock
 
 RUN --mount=type=cache,target=/home/app/target \
-    cargo build --release && mv /home/app/target/release/openfaas_functions_operato_rs /usr/local/bin/openfaas_functions_operato_rs
+    cargo test && cargo build --release && mv /home/app/target/release/openfaas_functions_operato_rs /usr/local/bin/openfaas_functions_operato_rs
 
 FROM alpine:3.18 as runner
 

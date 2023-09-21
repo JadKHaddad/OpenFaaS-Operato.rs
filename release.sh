@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Do the tets
+cargo test
+
 # Set version in cargo.toml
 
 # Build and push docker image
