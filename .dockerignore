@@ -1,1 +1,8 @@
+Dockerfile
+LICENSE
 /target
+*.sh
+*.md
+*.yaml
+.gitignore
+.github
