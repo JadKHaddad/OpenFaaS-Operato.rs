@@ -11,7 +11,7 @@ openfaas_functions_operato_rs operator controller deploy install
 ```
 * Now you can create a Function and wait for it to be ready
 ```bash
-kubectl apply -f example-function.yaml
+kubectl apply -f nodeinfo.yaml
 kubectl wait --for=condition=ready openfaasfunctions -n openfaas-fn nodeinfo
 ```
 
@@ -32,7 +32,7 @@ openfaas_functions_operato_rs operator controller deploy uninstall
 ```
 * Delete a Function
 ```bash
-kubectl delete -f example-function.yaml
+kubectl delete -f nodeinfo.yaml
 ```
 
 ## Help
