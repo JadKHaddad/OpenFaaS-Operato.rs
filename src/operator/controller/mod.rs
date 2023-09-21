@@ -2,9 +2,7 @@ pub mod deplyoment;
 mod errors;
 
 use self::errors::*;
-use crate::crds::defs::{
-    OpenFaaSFunction, OpenFaasFunctionErrorStatus, OpenFaasFunctionOkStatus, OpenFaasFunctionStatus,
-};
+use crate::crds::defs::{OpenFaaSFunction, OpenFaasFunctionPossibleStatus};
 use convert_case::{Case, Casing};
 use futures::stream::StreamExt;
 use k8s_openapi::api::core::v1::Namespace;
@@ -160,35 +158,41 @@ impl OperatorInner {
     async fn replace_status(
         &self,
         crd_with_status: &mut OpenFaaSFunction,
-        status: OpenFaasFunctionStatus,
+        status: OpenFaasFunctionPossibleStatus,
     ) -> Result<(), StatusError> {
         let name = crd_with_status.name_any();
         let api = &self.api;
 
-        match crd_with_status.status {
-            Some(ref func_status) if func_status == &status => {
-                tracing::info!("Resource already has {:?} status. Skipping.", status);
-            }
-            _ => {
-                tracing::info!("Setting status to {:?}.", status);
+        let mut replace_status = true;
 
-                crd_with_status.status = Some(status.clone());
-                api.replace_status(
-                    &name,
-                    &PostParams::default(),
-                    serde_json::to_vec(&crd_with_status).map_err(|error| StatusError {
-                        error: SetStatusError::Serilization(error),
-                        status: status.clone(),
-                    })?,
-                )
-                .await
-                .map_err(|error| StatusError {
-                    error: SetStatusError::Kube(error),
+        if let Some(ref func_status) = crd_with_status.status {
+            if let Some(current_possible_status) = func_status.possible_status() {
+                if status == current_possible_status {
+                    tracing::info!("Resource already has {:?} status. Skipping.", status);
+                    replace_status = false;
+                }
+            }
+        }
+
+        if replace_status {
+            tracing::info!("Setting status to {:?}.", status);
+
+            crd_with_status.status = Some(status.clone().into());
+            api.replace_status(
+                &name,
+                &PostParams::default(),
+                serde_json::to_vec(&crd_with_status).map_err(|error| StatusError {
+                    error: SetStatusError::Serilization(error),
                     status: status.clone(),
-                })?;
+                })?,
+            )
+            .await
+            .map_err(|error| StatusError {
+                error: SetStatusError::Kube(error),
+                status: status.clone(),
+            })?;
 
-                tracing::info!("Status set to {:?}.", status);
-            }
+            tracing::info!("Status set to {:?}.", status);
         }
 
         Ok(())
@@ -213,8 +217,7 @@ impl OperatorInner {
                 .await
                 .map_err(CheckResourceNamespaceError::GetStatus)?;
 
-            let status =
-                OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::InvalidCRDNamespace);
+            let status = OpenFaasFunctionPossibleStatus::InvalidCRDNamespace;
 
             self.replace_status(&mut crd_with_status, status)
                 .await
@@ -254,9 +257,7 @@ impl OperatorInner {
                         .await
                         .map_err(CheckFunctionNamespaceError::GetStatus)?;
 
-                    let status = OpenFaasFunctionStatus::Err(
-                        OpenFaasFunctionErrorStatus::InvalidFunctionNamespace,
-                    );
+                    let status = OpenFaasFunctionPossibleStatus::InvalidFunctionNamespace;
 
                     self.replace_status(&mut crd_with_status, status)
                         .await
@@ -348,9 +349,7 @@ impl OperatorInner {
                         .await
                         .map_err(CheckDeploymentError::GetStatus)?;
 
-                    let status = OpenFaasFunctionStatus::Err(
-                        OpenFaasFunctionErrorStatus::DeploymentNotReady,
-                    );
+                    let status = OpenFaasFunctionPossibleStatus::DeploymentNotReady;
 
                     self.replace_status(&mut crd_with_status, status)
                         .await
@@ -368,9 +367,7 @@ impl OperatorInner {
                             .await
                             .map_err(CheckDeploymentError::GetStatus)?;
 
-                        let status = OpenFaasFunctionStatus::Err(
-                            OpenFaasFunctionErrorStatus::DeploymentNotReady,
-                        );
+                        let status = OpenFaasFunctionPossibleStatus::DeploymentNotReady;
 
                         self.replace_status(&mut crd_with_status, status)
                             .await
@@ -395,8 +392,7 @@ impl OperatorInner {
                 .await
                 .map_err(CheckDeploymentError::GetStatus)?;
 
-            let status =
-                OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::DeploymentAlreadyExists);
+            let status = OpenFaasFunctionPossibleStatus::DeploymentAlreadyExists;
 
             self.replace_status(&mut crd_with_status, status)
                 .await
@@ -476,7 +472,7 @@ impl OperatorInner {
                 tracing::error!(%error, "Failed to generate deployment.");
 
                 // Now we set the status and propagate the error
-                match Option::<OpenFaasFunctionErrorStatus>::from(&error) {
+                match Option::<OpenFaasFunctionPossibleStatus>::from(&error) {
                     Some(error_status) => {
                         tracing::debug!(%error, "Error can be converted to status.");
 
@@ -485,9 +481,7 @@ impl OperatorInner {
                             .await
                             .map_err(CreateDeploymentError::GetStatus)?;
 
-                        let status = OpenFaasFunctionStatus::Err(error_status);
-
-                        self.replace_status(&mut crd_with_status, status)
+                        self.replace_status(&mut crd_with_status, error_status)
                             .await
                             .map_err(CreateDeploymentError::SetStatus)?;
                     }
@@ -581,8 +575,7 @@ impl OperatorInner {
                     .await
                     .map_err(CheckSecretsError::List)?;
 
-                let status =
-                    OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::SecretsNotFound);
+                let status = OpenFaasFunctionPossibleStatus::SecretsNotFound;
 
                 self.replace_status(&mut crd_with_status, status)
                     .await
@@ -668,8 +661,7 @@ impl OperatorInner {
                 .await
                 .map_err(CheckServiceError::GetStatus)?;
 
-            let status =
-                OpenFaasFunctionStatus::Err(OpenFaasFunctionErrorStatus::ServiceAlreadyExists);
+            let status = OpenFaasFunctionPossibleStatus::ServiceAlreadyExists;
 
             self.replace_status(&mut crd_with_status, status)
                 .await
@@ -753,7 +745,7 @@ impl OperatorInner {
             .await
             .map_err(DeployedStatusError::GetStatus)?;
 
-        let status = OpenFaasFunctionStatus::Ok(OpenFaasFunctionOkStatus::Ready);
+        let status = OpenFaasFunctionPossibleStatus::Ok;
 
         self.replace_status(&mut crd_with_status, status)
             .await

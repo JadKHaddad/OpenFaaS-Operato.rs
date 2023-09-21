@@ -1,11 +1,12 @@
-use crate::utils;
-
 use super::defs::{
     FunctionIntoDeploymentError, FunctionIntoServiceError, FunctionResources,
     FunctionResourcesQuantity, FunctionSpecIntoDeploymentError, FunctionSpecIntoServiceError,
-    FunctionSpecIntoYamlError, IntoQuantityError, OpenFaaSFunction, OpenFaasFunctionErrorStatus,
-    OpenFaasFunctionOkStatus, OpenFaasFunctionSpec, LAST_APPLIED_ANNOTATION,
+    FunctionSpecIntoYamlError, IntoQuantityError, OpenFaaSFunction, OpenFaasFunctionPossibleStatus,
+    OpenFaasFunctionSpec, OpenFaasFunctionStatus, OpenFaasFunctionStatusCondition,
+    OpenFaasFunctionStatusConditionMessage, OpenFaasFunctionStatusConditionStatus,
+    OpenFaasFunctionStatusConditionType, LAST_APPLIED_ANNOTATION,
 };
+use crate::utils;
 use itertools::Itertools;
 use k8s_openapi::{
     api::{
@@ -17,23 +18,16 @@ use k8s_openapi::{
         },
     },
     apimachinery::pkg::{
-        api::resource::Quantity, apis::meta::v1::LabelSelector, util::intstr::IntOrString,
+        api::resource::Quantity,
+        apis::meta::v1::{LabelSelector, Time},
+        util::intstr::IntOrString,
     },
+    chrono,
 };
 use kube::core::{ObjectMeta, Resource};
 use kube_quantity::ParsedQuantity;
 use serde_json::Error as SerdeJsonError;
-use std::{collections::BTreeMap, fmt::Display};
-
-impl Display for OpenFaasFunctionOkStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            OpenFaasFunctionOkStatus::Ready => {
-                write!(f, "Deployment is ready")
-            }
-        }
-    }
-}
+use std::collections::BTreeMap;
 
 impl FunctionResources {
     fn try_to_k8s_resources(
@@ -745,14 +739,111 @@ impl TryFrom<&OpenFaaSFunction> for Service {
     }
 }
 
-impl From<&FunctionIntoDeploymentError> for Option<OpenFaasFunctionErrorStatus> {
+impl OpenFaasFunctionStatus {
+    pub fn possible_status(&self) -> Option<OpenFaasFunctionPossibleStatus> {
+        Some(self.conditions.first()?.reason.clone())
+    }
+}
+
+impl From<&OpenFaasFunctionPossibleStatus> for OpenFaasFunctionStatusConditionStatus {
+    fn from(status: &OpenFaasFunctionPossibleStatus) -> Self {
+        match status {
+            OpenFaasFunctionPossibleStatus::Ok => OpenFaasFunctionStatusConditionStatus {
+                status: String::from("True"),
+            },
+            _ => OpenFaasFunctionStatusConditionStatus {
+                status: String::from("False"),
+            },
+        }
+    }
+}
+
+impl From<&OpenFaasFunctionPossibleStatus> for OpenFaasFunctionStatusConditionMessage {
+    fn from(status: &OpenFaasFunctionPossibleStatus) -> Self {
+        match status {
+            OpenFaasFunctionPossibleStatus::Ok => {
+                OpenFaasFunctionStatusConditionMessage { message: None }
+            }
+            OpenFaasFunctionPossibleStatus::InvalidCRDNamespace => {
+                OpenFaasFunctionStatusConditionMessage {
+                    message: Some(String::from(
+                        "The CRD's namespace does not match the functions namespace",
+                    )),
+                }
+            }
+            OpenFaasFunctionPossibleStatus::InvalidFunctionNamespace => {
+                OpenFaasFunctionStatusConditionMessage {
+                    message: Some(String::from(
+                        "The function's namespace does not match the functions namespace",
+                    )),
+                }
+            }
+            OpenFaasFunctionPossibleStatus::CPUQuantity => OpenFaasFunctionStatusConditionMessage {
+                message: Some(String::from("A function's cpu quantity is invalid")),
+            },
+            OpenFaasFunctionPossibleStatus::MemoryQuantity => {
+                OpenFaasFunctionStatusConditionMessage {
+                    message: Some(String::from("A function's memory quantity is invalid")),
+                }
+            }
+            OpenFaasFunctionPossibleStatus::DeploymentAlreadyExists => {
+                OpenFaasFunctionStatusConditionMessage {
+                    message: Some(String::from(
+                        "The function's deployment already deployed by third party",
+                    )),
+                }
+            }
+            OpenFaasFunctionPossibleStatus::DeploymentNotReady => {
+                OpenFaasFunctionStatusConditionMessage {
+                    message: Some(String::from("The function's deployment is not ready")),
+                }
+            }
+            OpenFaasFunctionPossibleStatus::ServiceAlreadyExists => {
+                OpenFaasFunctionStatusConditionMessage {
+                    message: Some(String::from(
+                        "The function's service already deployed by third party",
+                    )),
+                }
+            }
+            OpenFaasFunctionPossibleStatus::SecretsNotFound => {
+                OpenFaasFunctionStatusConditionMessage {
+                    message: Some(String::from("The given secrets to mount do not exist")),
+                }
+            }
+        }
+    }
+}
+
+impl From<OpenFaasFunctionPossibleStatus> for OpenFaasFunctionStatusCondition {
+    fn from(status: OpenFaasFunctionPossibleStatus) -> Self {
+        OpenFaasFunctionStatusCondition {
+            type_: OpenFaasFunctionStatusConditionType::Ready,
+            status: OpenFaasFunctionStatusConditionStatus::from(&status),
+            message: OpenFaasFunctionStatusConditionMessage::from(&status),
+            reason: status,
+            last_update_time: Some(Time(chrono::Utc::now())),
+        }
+    }
+}
+
+impl From<OpenFaasFunctionPossibleStatus> for OpenFaasFunctionStatus {
+    fn from(status: OpenFaasFunctionPossibleStatus) -> Self {
+        OpenFaasFunctionStatus {
+            conditions: vec![OpenFaasFunctionStatusCondition::from(status)],
+        }
+    }
+}
+
+impl From<&FunctionIntoDeploymentError> for Option<OpenFaasFunctionPossibleStatus> {
     fn from(e: &FunctionIntoDeploymentError) -> Self {
         match e {
             FunctionIntoDeploymentError::FunctionSpec(
                 FunctionSpecIntoDeploymentError::Quantity(e),
             ) => match e {
-                IntoQuantityError::Memory(_) => Some(OpenFaasFunctionErrorStatus::MemoryQuantity),
-                IntoQuantityError::CPU(_) => Some(OpenFaasFunctionErrorStatus::CPUQuantity),
+                IntoQuantityError::Memory(_) => {
+                    Some(OpenFaasFunctionPossibleStatus::MemoryQuantity)
+                }
+                IntoQuantityError::CPU(_) => Some(OpenFaasFunctionPossibleStatus::CPUQuantity),
             },
             _ => None,
         }

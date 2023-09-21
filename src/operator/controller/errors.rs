@@ -1,5 +1,5 @@
 use crate::crds::defs::{
-    FunctionIntoDeploymentError, FunctionIntoServiceError, OpenFaasFunctionStatus,
+    FunctionIntoDeploymentError, FunctionIntoServiceError, OpenFaasFunctionPossibleStatus,
 };
 use kube::Error as KubeError;
 use thiserror::Error as ThisError;
@@ -47,7 +47,7 @@ pub enum CheckFunctionNamespaceError {
 pub struct StatusError {
     #[source]
     pub error: SetStatusError,
-    pub status: OpenFaasFunctionStatus,
+    pub status: OpenFaasFunctionPossibleStatus,
 }
 
 #[derive(ThisError, Debug)]
