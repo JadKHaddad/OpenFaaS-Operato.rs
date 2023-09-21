@@ -84,6 +84,6 @@ spec:
         env:
         - name: RUST_LOG
           value: openfaas_functions_operato_rs=info,kube=off
-        image: docker.io/jadkhaddad/openfaas_functions_operato_rs:0.1.0
+        image: docker.io/jadkhaddad/openfaas_functions_operato_rs:0.2.0
         name: openfaas-functions-operator
       serviceAccountName: openfaas-functions-operator
