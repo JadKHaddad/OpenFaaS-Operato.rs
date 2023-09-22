@@ -14,8 +14,6 @@ RUN --mount=type=cache,target=/home/app/target \
 
 FROM alpine:3.18 as runner
 
-# TODO: test if we need libgcc, for real!
-
 RUN apk update \
     && apk add --no-cache libgcc
 
@@ -34,5 +32,5 @@ ENTRYPOINT ["openfaas_functions_operato_rs"]
 # use openfaas_functions_operato_rs docker command to build and push the current version
 # DOCKER_BUILDKIT=1 docker build -t jadkhaddad/openfaas_functions_operato_rs:latest . --progress=plain
 # docker push jadkhaddad/openfaas_functions_operato_rs:latest
-# docker run --rm -it -v ${USERPROFILE}/.kube:/home/app/.kube openfaas_operato_rs:latest run operator -n openfaas-fn controller
-# docker run --rm -it -v ~/.kube:/home/app/.kube openfaas_operato_rs:latest run operator -n openfaas-fn controller
+# docker run --rm -it -v ${USERPROFILE}/.kube:/home/app/.kube jadkhaddad/openfaas_functions_operato_rs:latest operator controller run
+# docker run --rm -it -v ~/.kube:/home/app/.kube jadkhaddad/openfaas_functions_operato_rs:latest operator controller run
