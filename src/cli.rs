@@ -1,8 +1,7 @@
 use crate::{
     consts::{
-        DEFAULT_IMAGE_WITH_LATEST_TAG, DEFAULT_IMAGE_WITH_PKG_TAG, FUNCTIONS_DEFAULT_NAMESPACE,
-        FUNCTIONS_NAMESPACE_ENV_VAR, GATEWAY_DEFAULT_URL, GATEWAY_URL_ENV_VAR,
-        OPF_FO_C_UPDATE_STRATEGY_ENV_VAR, PKG_VERSION,
+        DEFAULT_IMAGE_WITH_PKG_TAG, FUNCTIONS_DEFAULT_NAMESPACE, FUNCTIONS_NAMESPACE_ENV_VAR,
+        GATEWAY_DEFAULT_URL, GATEWAY_URL_ENV_VAR, OPF_FO_C_UPDATE_STRATEGY_ENV_VAR, PKG_VERSION,
     },
     crds::defs::VERSION as CRD_VERSION,
     operator::controller::UpdateStrategy,
@@ -66,7 +65,7 @@ pub enum Commands {
         #[clap(short = 'a', long, action, default_value = "false")]
         accept: bool,
         /// The name of the image
-        #[clap(short = 'i', long, default_value = DEFAULT_IMAGE_WITH_LATEST_TAG)]
+        #[clap(short = 'i', long, default_value = crate::consts::DEFAULT_IMAGE_WITH_LATEST_TAG)]
         image_name: String,
         /// Build the image with package version
         ///
