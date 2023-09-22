@@ -18,3 +18,6 @@ pub const DEFAULT_IMAGE: &str = concatcp!(DEFAULT_IMAGE_REPO, "/", PKG_NAME);
 
 pub const DEFAULT_IMAGE_WITH_TAG: &str =
     concatcp!(DEFAULT_IMAGE_REPO, "/", PKG_NAME, ":", PKG_VERSION);
+
+pub const DEFAULT_IMAGE_WITH_LATEST_TAG: &str =
+    concatcp!(DEFAULT_IMAGE_REPO, "/", PKG_NAME, ":latest");

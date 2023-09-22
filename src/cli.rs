@@ -1,7 +1,8 @@
 use crate::{
     consts::{
-        DEFAULT_IMAGE_WITH_TAG, FUNCTIONS_DEFAULT_NAMESPACE, FUNCTIONS_NAMESPACE_ENV_VAR,
-        GATEWAY_DEFAULT_URL, GATEWAY_URL_ENV_VAR, OPFOC_UPDATE_STRATEGY_ENV_VAR, PKG_VERSION,
+        DEFAULT_IMAGE_WITH_LATEST_TAG, DEFAULT_IMAGE_WITH_TAG, FUNCTIONS_DEFAULT_NAMESPACE,
+        FUNCTIONS_NAMESPACE_ENV_VAR, GATEWAY_DEFAULT_URL, GATEWAY_URL_ENV_VAR,
+        OPFOC_UPDATE_STRATEGY_ENV_VAR, PKG_VERSION,
     },
     crds::defs::VERSION as CRD_VERSION,
     operator::controller::UpdateStrategy,
@@ -56,7 +57,8 @@ pub enum Commands {
         #[command(subcommand)]
         command: CrdCommands,
     },
-    /// Docker command
+    #[cfg(debug_assertions)]
+    /// Docker commands
     ///
     /// Builds and pushes the Docker image for the OpenFaaS functions operator
     Docker {
@@ -64,8 +66,13 @@ pub enum Commands {
         #[clap(short = 'a', long, action, default_value = "false")]
         accept: bool,
         /// The name of the image
-        #[clap(short = 'i', long, default_value = DEFAULT_IMAGE_WITH_TAG)]
+        #[clap(short = 'i', long, default_value = DEFAULT_IMAGE_WITH_LATEST_TAG)]
         image_name: String,
+        /// Build the image with package version
+        ///
+        /// This will override the image_name argument
+        #[clap(long, default_value = "false")]
+        use_package_version: bool,
         /// Context path for the Docker build
         #[clap(short = 'c', long, default_value = ".")]
         context: PathBuf,
@@ -78,6 +85,7 @@ pub enum Commands {
     },
 }
 
+#[cfg(debug_assertions)]
 #[derive(Subcommand, Debug)]
 pub enum DockerCommands {
     /// Builds the Docker image
@@ -116,10 +124,12 @@ pub enum OperatorCommands {
         #[clap(short, long)]
         password: Option<String>,
         /// The path to a file containing the username for the OpenFaaS gateway
+        ///
         /// If this is set, the username argument is ignored
         #[clap(long)]
         username_file: Option<PathBuf>,
         /// The path to a file containing the password for the OpenFaaS gateway
+        ///
         /// If this is set, the password argument is ignored
         #[clap(long)]
         password_file: Option<PathBuf>,
@@ -144,6 +154,7 @@ pub enum OperatorSubCommands {
         #[clap(short = 'i', long, default_value = DEFAULT_IMAGE_WITH_TAG)]
         image_name: String,
         /// The version of the image to use for the OpenFaaS functions operator
+        ///
         /// If this is set, the image_name argument is ignored, and the image_name is set to the default image
         #[clap(short = 'v', long)]
         image_version: Option<String>,

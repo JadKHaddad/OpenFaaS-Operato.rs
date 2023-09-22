@@ -7,7 +7,7 @@ cargo test
 
 # Build and push docker image
 # Since our package knows excactly how to build itself and manages its own versioning:
-cargo run -- docker -a up 
+cargo run -- docker --use-package-version up 
 
 # Create a ready to use crd.yaml
 cargo run -- crd write -f crd.yaml

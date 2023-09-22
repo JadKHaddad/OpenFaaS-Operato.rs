@@ -1,6 +1,8 @@
 use anyhow::{Context, Ok, Result as AnyResult};
 use clap::Parser;
+#[cfg(debug_assertions)]
 use openfaas_functions_operato_rs::cli::DockerCommands;
+#[cfg(debug_assertions)]
 use openfaas_functions_operato_rs::docker_actions::*;
 use openfaas_functions_operato_rs::main_actions::*;
 use openfaas_functions_operato_rs::{
@@ -118,16 +120,22 @@ async fn main() -> AnyResult<()> {
                 }
             }
         },
+        #[cfg(debug_assertions)]
         Commands::Docker {
             accept,
             context,
             dockerfile,
             image_name,
+            use_package_version,
             command,
         } => {
-            if !accept && !are_you_sure_you_want_to_run_this_command()? {
+            let image_name = determin_image_for_build(image_name, use_package_version);
+            let message = format!("You are about to build the image: {}", image_name);
+
+            if !accept && !are_you_sure_you_want_to_run_this_command(&message)? {
                 return Ok(());
             }
+
             match command {
                 DockerCommands::Build {} => build(context, dockerfile, image_name).await?,
                 DockerCommands::Push {} => push(image_name).await?,
