@@ -60,6 +60,9 @@ pub enum Commands {
     ///
     /// Builds and pushes the Docker image for the OpenFaaS functions operator
     Docker {
+        /// Proceed without confirmation
+        #[clap(short = 'a', long, action, default_value = "false")]
+        accept: bool,
         /// The name of the image
         #[clap(short = 'i', long, default_value = DEFAULT_IMAGE_WITH_TAG)]
         image_name: String,

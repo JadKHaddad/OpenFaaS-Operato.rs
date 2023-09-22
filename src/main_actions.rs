@@ -263,3 +263,24 @@ pub async fn uninstall_crd() -> AnyResult<()> {
 
     Ok(())
 }
+
+pub fn are_you_sure_you_want_to_run_this_command() -> AnyResult<bool> {
+    if !atty::is(atty::Stream::Stdin) {
+        anyhow::bail!("Not a tty");
+    }
+
+    let mut input = String::new();
+
+    println!("Are you sure you want to run this command? [y]es");
+
+    std::io::stdin()
+        .read_line(&mut input)
+        .context("Failed to read input")?;
+
+    let input = input.trim().to_lowercase();
+
+    match input.as_str() {
+        "y" | "yes" => Ok(true),
+        _ => Ok(false),
+    }
+}

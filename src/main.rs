@@ -119,15 +119,21 @@ async fn main() -> AnyResult<()> {
             }
         },
         Commands::Docker {
+            accept,
             context,
             dockerfile,
             image_name,
             command,
-        } => match command {
-            DockerCommands::Build {} => build(context, dockerfile, image_name).await?,
-            DockerCommands::Push {} => push(image_name).await?,
-            DockerCommands::Up {} => build_and_push(context, dockerfile, image_name).await?,
-        },
+        } => {
+            if !accept && !are_you_sure_you_want_to_run_this_command()? {
+                return Ok(());
+            }
+            match command {
+                DockerCommands::Build {} => build(context, dockerfile, image_name).await?,
+                DockerCommands::Push {} => push(image_name).await?,
+                DockerCommands::Up {} => build_and_push(context, dockerfile, image_name).await?,
+            }
+        }
     }
 
     Ok(())
