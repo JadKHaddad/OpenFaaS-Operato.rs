@@ -163,37 +163,33 @@ impl OperatorInner {
         let name = crd_with_status.name_any();
         let api = &self.api;
 
-        let mut replace_status = true;
-
         if let Some(ref func_status) = crd_with_status.status {
             if let Some(current_possible_status) = func_status.possible_status() {
                 if status == current_possible_status {
                     tracing::info!("Resource already has {:?} status. Skipping.", status);
-                    replace_status = false;
+                    return Ok(());
                 }
             }
         }
 
-        if replace_status {
-            tracing::info!("Setting status to {:?}.", status);
+        tracing::info!("Setting status to {:?}.", status);
 
-            crd_with_status.status = Some(status.clone().into());
-            api.replace_status(
-                &name,
-                &PostParams::default(),
-                serde_json::to_vec(&crd_with_status).map_err(|error| StatusError {
-                    error: SetStatusError::Serilization(error),
-                    status: status.clone(),
-                })?,
-            )
-            .await
-            .map_err(|error| StatusError {
-                error: SetStatusError::Kube(error),
+        crd_with_status.status = Some(status.clone().into());
+        api.replace_status(
+            &name,
+            &PostParams::default(),
+            serde_json::to_vec(&crd_with_status).map_err(|error| StatusError {
+                error: SetStatusError::Serilization(error),
                 status: status.clone(),
-            })?;
+            })?,
+        )
+        .await
+        .map_err(|error| StatusError {
+            error: SetStatusError::Kube(error),
+            status: status.clone(),
+        })?;
 
-            tracing::info!("Status set to {:?}.", status);
-        }
+        tracing::info!("Status set to {:?}.", status);
 
         Ok(())
     }
