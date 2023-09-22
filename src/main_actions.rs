@@ -1,5 +1,5 @@
 use crate::{
-    consts::{DEFAULT_IMAGE, DISPLAY_NAME},
+    consts::{DEFAULT_IMAGE_WITHOUT_TAG, DISPLAY_NAME},
     crds::defs::{OpenFaaSFunction, NAME},
     operator::controller::{deplyoment::DeploymentBuilder, Operator, UpdateStrategy},
 };
@@ -54,7 +54,7 @@ pub async fn create_and_run_operator_controller(
 
 pub fn determin_image(image_name: String, image_version: Option<String>) -> String {
     match image_version {
-        Some(image_version) => format!("{}:{}", DEFAULT_IMAGE, image_version),
+        Some(image_version) => format!("{}:{}", DEFAULT_IMAGE_WITHOUT_TAG, image_version),
         None => image_name,
     }
 }

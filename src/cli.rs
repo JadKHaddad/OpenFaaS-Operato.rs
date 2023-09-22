@@ -1,8 +1,8 @@
 use crate::{
     consts::{
-        DEFAULT_IMAGE_WITH_LATEST_TAG, DEFAULT_IMAGE_WITH_TAG, FUNCTIONS_DEFAULT_NAMESPACE,
+        DEFAULT_IMAGE_WITH_LATEST_TAG, DEFAULT_IMAGE_WITH_PKG_TAG, FUNCTIONS_DEFAULT_NAMESPACE,
         FUNCTIONS_NAMESPACE_ENV_VAR, GATEWAY_DEFAULT_URL, GATEWAY_URL_ENV_VAR,
-        OPFOC_UPDATE_STRATEGY_ENV_VAR, PKG_VERSION,
+        OPF_FO_C_UPDATE_STRATEGY_ENV_VAR, PKG_VERSION,
     },
     crds::defs::VERSION as CRD_VERSION,
     operator::controller::UpdateStrategy,
@@ -105,7 +105,7 @@ pub enum OperatorCommands {
         #[clap(short = 'n', long, env = FUNCTIONS_NAMESPACE_ENV_VAR, default_value = FUNCTIONS_DEFAULT_NAMESPACE)]
         functions_namespace: String,
         /// Update strategy for the operator
-        #[clap(short, long, env = OPFOC_UPDATE_STRATEGY_ENV_VAR, value_enum, default_value_t = UpdateStrategy::default())]
+        #[clap(short, long, env = OPF_FO_C_UPDATE_STRATEGY_ENV_VAR, value_enum, default_value_t = UpdateStrategy::default())]
         update_strategy: UpdateStrategy,
 
         #[command(subcommand)]
@@ -151,7 +151,7 @@ pub enum OperatorSubCommands {
         #[clap(short, long, default_value = "openfaas-functions-operator")]
         app_name: String,
         /// The name of the image to use for the OpenFaaS functions operator
-        #[clap(short = 'i', long, default_value = DEFAULT_IMAGE_WITH_TAG)]
+        #[clap(short = 'i', long, default_value = DEFAULT_IMAGE_WITH_PKG_TAG)]
         image_name: String,
         /// The version of the image to use for the OpenFaaS functions operator
         ///
